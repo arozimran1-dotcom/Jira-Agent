@@ -1,0 +1,6 @@
+{
+  "name": "Jira Integration Dashboard",
+  "description": "An interactive, full-stack Jira board and workspace manager featuring OAuth 2.0 Atlassian integration, board view, issue filters, detail viewer, and creation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
