@@ -34,6 +34,8 @@ import {
   Bot,
   Send
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import { initDB, saveSession, getSession, getAllSessions, deleteSession, ChatSession } from "./db";
 
 import { 
   JIRA_AUTH_TYPE, 
@@ -116,69 +118,30 @@ function formatSecondsToJiraTime(seconds: number): string {
 
 export default function App() {
   // Session / Storage persistence states
-  const [profiles, setProfiles] = useState<UserProfile[]>(() => {
-    const raw = localStorage.getItem("jira_user_profiles");
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch (e) {
-        console.error("Failed to parse jira_user_profiles:", e);
-      }
-    }
-    
-    // Default profiles built from raw localStorage or fallback presets
-    const savedAuthType = (localStorage.getItem("jira_auth_type") as JIRA_AUTH_TYPE) || "basic";
-    const savedDirectRaw = localStorage.getItem("jira_direct_conn");
-    const savedDirect = savedDirectRaw ? JSON.parse(savedDirectRaw) : {
-      domain: "joblogic.atlassian.net",
-      email: "arozi@joblogic.com",
-      apiToken: "ATATT3xFfGF0HBBODDhtDu_MbDQ5KBCgebWZkcMKpPsisCmTS0VxtH75BOKlQXOZ3DOGOc6sTfrmqu0ALc-STybZqMSxNo6aXi673n4jeiMGd3n-j8Nwy_he8_GqfKl5Ff6OodrCN8LIFB03ToqTtdpnZVewQTpJPoe3xjCVP8bLYqMYCQlNnXw=EE96D05E"
-    };
-    const savedOauthTokens = localStorage.getItem("jira_oauth_tokens") ? JSON.parse(localStorage.getItem("jira_oauth_tokens")!) : null;
-    const savedSelectedSite = localStorage.getItem("jira_selected_site") ? JSON.parse(localStorage.getItem("jira_selected_site")!) : null;
-
-    const defaultOwnerProfile: UserProfile = {
-      id: "owner-work",
-      name: "Default Profile (Work Link)",
-      authType: savedAuthType,
-      directConn: savedDirect,
-      oauthTokens: savedOauthTokens,
-      selectedSite: savedSelectedSite
-    };
-
-    const defaultDemoProfile: UserProfile = {
-      id: "demo-sandbox",
-      name: "Demo Sandbox Simulator",
-      authType: "demo",
-      directConn: null,
-      oauthTokens: null,
-      selectedSite: null
-    };
-
-    return [defaultOwnerProfile, defaultDemoProfile];
+  // JWT authentication state
+  const [jwtToken, setJwtToken] = useState<string | null>(() => {
+    return localStorage.getItem("jira_jwt_token");
   });
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authScreenMode, setAuthScreenMode] = useState<"login" | "register">("login");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // Session / Storage persistence states
+  const [profiles, setProfiles] = useState<UserProfile[]>([]);
 
   const [activeProfileId, setActiveProfileId] = useState<string>(() => {
-    const saved = localStorage.getItem("jira_active_profile_id");
-    if (saved) return saved;
-    return "owner-work";
+    return localStorage.getItem("jira_active_profile_id") || "";
   });
 
-  const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0] || {
-    id: "demo",
-    name: "Demo Profile",
-    authType: "demo" as JIRA_AUTH_TYPE,
-    directConn: null,
-    oauthTokens: null,
-    selectedSite: null
-  };
+  const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
 
-  const [authType, setAuthType] = useState<JIRA_AUTH_TYPE>(activeProfile.authType);
-  const [oauthTokens, setOauthTokens] = useState<AtlassianTokens | null>(activeProfile.oauthTokens);
-  const [selectedSite, setSelectedSite] = useState<AccessibleSite | null>(activeProfile.selectedSite);
-  const [directConn, setDirectConn] = useState<DirectConnection | null>(activeProfile.directConn);
-  const [geminiApiKey, setGeminiApiKey] = useState<string | null>(activeProfile.geminiApiKey || null);
+  const [authType, setAuthType] = useState<JIRA_AUTH_TYPE>(activeProfile?.authType || "demo");
+  const [oauthTokens, setOauthTokens] = useState<AtlassianTokens | null>(activeProfile?.oauthTokens || null);
+  const [selectedSite, setSelectedSite] = useState<AccessibleSite | null>(activeProfile?.selectedSite || null);
+  const [directConn, setDirectConn] = useState<DirectConnection | null>(activeProfile?.directConn || null);
+  const [geminiApiKey, setGeminiApiKey] = useState<string | null>(activeProfile?.geminiApiKey || null);
 
   // Profile manager form inputs
   const [profileFormName, setProfileFormName] = useState("");
@@ -200,7 +163,8 @@ export default function App() {
   const [selectedProject, setSelectedProject] = useState<JiraProject | null>(null);
   const [issues, setIssues] = useState<JiraIssue[]>([]);
   const [availableSites, setAvailableSites] = useState<AccessibleSite[]>([]);
-  const [activeTab, setActiveTab] = useState<"board" | "backlog" | "confluence" | "api-guide" | "profiles">("board");
+  const [activeTab, setActiveTab] = useState<"board" | "backlog" | "docs" | "profiles">("board");
+  const [docsSubTab, setDocsSubTab] = useState<"wiki" | "guide">("wiki");
 
   // Confluence Space & Document state variables
   const [confluenceSpaces, setConfluenceSpaces] = useState<any[]>([]);
@@ -253,30 +217,339 @@ export default function App() {
   const [isAiOpen, setIsAiOpen] = useState(false);
   const [aiInput, setAiInput] = useState("");
   const [aiIsLoading, setAiIsLoading] = useState(false);
-  const [aiMessages, setAiMessages] = useState<any[]>([
-    {
-      id: "welcome",
-      role: "agent",
-      text: "Hello! I am Jira-Intelligence, your specialized AI Time-Tracking Agent. Tell me what work you've done today, like 'I worked 2 hours on APP-101 fixing the visual errors, and 30m on APP-102 with database setup', and I will automatically parse, match, and prepare time logs for your approval!"
+  const [aiMessages, setAiMessages] = useState<any[]>([]);
+
+  // Chat History / IndexedDB states
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [currentUserDetails, setCurrentUserDetails] = useState<any>(null);
+
+  // Fetch current user's Atlassian profile to filter worklogs and set conversational context
+  useEffect(() => {
+    if (authType === "demo") {
+      setCurrentUserDetails({
+        accountId: "user-imran",
+        displayName: "Imran Aroz",
+        emailAddress: "arozimran18@gmail.com"
+      });
+      return;
     }
-  ]);
 
-  const handleQueryAiAgent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!aiInput.trim() || aiIsLoading) return;
-
-    const userText = aiInput.trim();
-    setAiInput("");
-    setAiIsLoading(true);
-
-    const userMessage = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      text: userText
+    const fetchMyself = async () => {
+      try {
+        const data = await makeProxyCall("myself", "GET");
+        if (data && data.accountId) {
+          setCurrentUserDetails(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch myself context details:", err);
+      }
     };
+    fetchMyself();
+  }, [activeProfileId, authType]);
 
-    setAiMessages(prev => [...prev, userMessage]);
+  // --- BACKEND JWT DATABASE SYNC METHODS ---
+  const fetchProfiles = async () => {
+    if (!jwtToken) return;
+    try {
+      const res = await fetch("/api/user/profiles", {
+        headers: { Authorization: `Bearer ${jwtToken}` }
+      });
+      if (!res.ok) throw new Error("Failed to fetch connection profiles");
+      const data = await res.json();
+      if (data.length === 0) {
+        // Create default profiles on backend
+        const defaultOwner = await saveProfileBackend({
+          name: "Default Profile (Work Link)",
+          authType: "basic",
+          directConn: {
+            domain: "joblogic.atlassian.net",
+            email: "arozi@joblogic.com",
+            apiToken: "ATATT3xFfGF0HBBODDhtDu_MbDQ5KBCgebWZkcMKpPsisCmTS0VxtH75BOKlQXOZ3DOGOc6sTfrmqu0ALc-STybZqMSxNo6aXi673n4jeiMGd3n-j8Nwy_he8_GqfKl5Ff6OodrCN8LIFB03ToqTtdpnZVewQTpJPoe3xjCVP8bLYqMYCQlNnXw=EE96D05E"
+          },
+          oauthTokens: null,
+          selectedSite: null,
+          geminiApiKey: null
+        });
+        const defaultDemo = await saveProfileBackend({
+          name: "Demo Sandbox Simulator",
+          authType: "demo",
+          directConn: null,
+          oauthTokens: null,
+          selectedSite: null,
+          geminiApiKey: null
+        });
+        setProfiles([defaultOwner, defaultDemo]);
+        setActiveProfileId(defaultOwner.id);
+        localStorage.setItem("jira_active_profile_id", defaultOwner.id);
+      } else {
+        setProfiles(data);
+        const currentValid = data.some((p: any) => p.id === activeProfileId);
+        if (!activeProfileId || !currentValid) {
+          setActiveProfileId(data[0].id);
+          localStorage.setItem("jira_active_profile_id", data[0].id);
+        }
+      }
+    } catch (err) {
+      console.error("fetchProfiles fail:", err);
+    }
+  };
 
+  const saveProfileBackend = async (profile: any) => {
+    const res = await fetch("/api/user/profiles", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${jwtToken}`
+      },
+      body: JSON.stringify(profile)
+    });
+    if (!res.ok) throw new Error("Failed to save connection profile to server");
+    return await res.json();
+  };
+
+  const deleteProfileBackend = async (profileId: string) => {
+    const res = await fetch(`/api/user/profiles/${profileId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${jwtToken}` }
+    });
+    if (!res.ok) throw new Error("Failed to delete connection profile from server");
+    return await res.json();
+  };
+
+  const fetchSessions = async () => {
+    if (!jwtToken) return;
+    try {
+      const res = await fetch("/api/user/sessions", {
+        headers: { Authorization: `Bearer ${jwtToken}` }
+      });
+      if (!res.ok) throw new Error("Failed to fetch chat sessions");
+      const data = await res.json();
+      data.sort((a: any, b: any) => b.updatedAt - a.updatedAt);
+      
+      if (data.length === 0) {
+        const initialId = `session-${Date.now()}`;
+        const initialSession = {
+          id: initialId,
+          name: "New Session",
+          messages: [
+            {
+              id: "welcome",
+              role: "agent",
+              text: "Hi! I'm Jira-Intelligence, your smart AI Co-Pilot. I can help you effortlessly log your work and find your assigned tasks. Just tell me what you did today, for example: 'Log 2h to my Epic for the presentation', or simply 'I worked on my last task for 30 mins'. I'll handle all the messy matching and prepare the time logs for you!"
+            }
+          ],
+          activeProfileId: activeProfileId || "default",
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        };
+        const saved = await saveSessionBackend(initialSession);
+        setSessions([saved]);
+        setCurrentSessionId(saved.id);
+        setAiMessages(saved.messages);
+      } else {
+        setSessions(data);
+        const currentValid = data.some((s: any) => s.id === currentSessionId);
+        if (!currentSessionId || !currentValid) {
+          setCurrentSessionId(data[0].id);
+          setAiMessages(data[0].messages);
+        } else {
+          const curSess = data.find((s: any) => s.id === currentSessionId);
+          if (curSess) setAiMessages(curSess.messages);
+        }
+      }
+    } catch (err) {
+      console.error("fetchSessions fail:", err);
+    }
+  };
+
+  const saveSessionBackend = async (session: any) => {
+    const res = await fetch("/api/user/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${jwtToken}`
+      },
+      body: JSON.stringify(session)
+    });
+    if (!res.ok) throw new Error("Failed to save chat session");
+    return await res.json();
+  };
+
+  const deleteSessionBackend = async (sessionId: string) => {
+    const res = await fetch(`/api/user/sessions/${sessionId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${jwtToken}` }
+    });
+    if (!res.ok) throw new Error("Failed to delete chat session");
+    return await res.json();
+  };
+
+  // JWT Token verification on mount / change
+  useEffect(() => {
+    if (!jwtToken) return;
+    const verifyToken = async () => {
+      try {
+        const res = await fetch("/api/auth/me", {
+          headers: { Authorization: `Bearer ${jwtToken}` }
+        });
+        if (res.ok) {
+          const details = await res.json();
+          setCurrentUserDetails(details);
+        } else {
+          handleLogout();
+        }
+      } catch (err) {
+        console.error("Token verification failed:", err);
+        handleLogout();
+      }
+    };
+    verifyToken();
+  }, [jwtToken]);
+
+  // Load profiles and sessions when token becomes available
+  useEffect(() => {
+    if (jwtToken) {
+      fetchProfiles();
+      fetchSessions();
+    } else {
+      setProfiles([]);
+      setSessions([]);
+      setCurrentSessionId(null);
+      setAiMessages([]);
+    }
+  }, [jwtToken]);
+
+  // Logout handler
+  const handleLogout = () => {
+    localStorage.removeItem("jira_jwt_token");
+    setJwtToken(null);
+    setCurrentUserDetails(null);
+    setProfiles([]);
+    setSessions([]);
+    setCurrentSessionId(null);
+    setAiMessages([]);
+    setActiveProfileId("");
+    setErrorMessage(null);
+  };
+
+  // JWT Registration/Login Form submit handler
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail.trim() || !authPassword.trim()) {
+      setAuthError("Email and password are required.");
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError(null);
+
+    const url = authScreenMode === "login" ? "/api/auth/login" : "/api/auth/register";
+
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authEmail.trim(), password: authPassword })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Authentication failed");
+      }
+
+      localStorage.setItem("jira_jwt_token", data.token);
+      setJwtToken(data.token);
+      setCurrentUserDetails(data.user);
+      
+      setAuthEmail("");
+      setAuthPassword("");
+    } catch (err: any) {
+      setAuthError(err.message || "Something went wrong.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // Synchronize connection state details with the active profile
+  useEffect(() => {
+    const activePrf = profiles.find(p => p.id === activeProfileId) || profiles[0];
+    if (activePrf) {
+      setAuthType(activePrf.authType);
+      setOauthTokens(activePrf.oauthTokens || null);
+      setSelectedSite(activePrf.selectedSite || null);
+      setDirectConn(activePrf.directConn || null);
+      setGeminiApiKey(activePrf.geminiApiKey || null);
+    } else {
+      setAuthType("demo");
+      setOauthTokens(null);
+      setSelectedSite(null);
+      setDirectConn(null);
+      setGeminiApiKey(null);
+    }
+  }, [activeProfileId, profiles]);
+
+  // Chat history lifecycle handlers
+  const handleCreateNewSession = async () => {
+    const newId = `session-${Date.now()}`;
+    const newSession = {
+      id: newId,
+      name: "New Session",
+      messages: [
+        {
+          id: "welcome",
+          role: "agent",
+          text: "Hi! I'm Jira-Intelligence, your smart AI Co-Pilot. I can help you effortlessly log your work and find your assigned tasks. Just tell me what you did today, for example: 'Log 2h to my Epic for the presentation', or simply 'I worked on my last task for 30 mins'. I'll handle all the messy matching and prepare the time logs for you!"
+        }
+      ],
+      activeProfileId: activeProfileId || "default",
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    
+    try {
+      const saved = await saveSessionBackend(newSession);
+      setSessions(prev => [saved, ...prev]);
+      setCurrentSessionId(newId);
+      setAiMessages(saved.messages);
+      setIsHistoryOpen(false);
+    } catch (err) {
+      console.error("Failed to create new session:", err);
+    }
+  };
+
+  const handleSwitchSession = (sessionId: string) => {
+    const sess = sessions.find(s => s.id === sessionId);
+    if (sess) {
+      setCurrentSessionId(sessionId);
+      setAiMessages(sess.messages);
+      setIsHistoryOpen(false);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await deleteSessionBackend(sessionId);
+      const updated = sessions.filter(s => s.id !== sessionId);
+      setSessions(updated);
+
+      if (currentSessionId === sessionId) {
+        if (updated.length > 0) {
+          setCurrentSessionId(updated[0].id);
+          setAiMessages(updated[0].messages);
+        } else {
+          handleCreateNewSession();
+        }
+      }
+    } catch (err) {
+      console.error("Failed to delete session:", err);
+    }
+  };
+
+  const runAiAgentQuery = async (userText: string, baseMessages: any[]) => {
+    setAiIsLoading(true);
     try {
       let enrichedIssues = [...issues];
 
@@ -392,13 +665,80 @@ export default function App() {
         };
       });
 
+      // Extract recent worklogs from enrichedIssues to provide context for "last task"
+      let allRecentWorklogs: any[] = [];
+      finalIssuesConfig.forEach((iss: any) => {
+         const wls = iss.fields?.worklog?.worklogs || [];
+         if (Array.isArray(wls)) {
+            wls.forEach(wl => {
+               // Filter: only keep if it matches current user
+               const isAuthor = currentUserDetails ? (
+                 wl.author?.accountId === currentUserDetails.accountId ||
+                 (wl.author?.emailAddress && wl.author.emailAddress.toLowerCase() === currentUserDetails.emailAddress?.toLowerCase()) ||
+                 wl.author?.displayName === currentUserDetails.displayName
+               ) : (
+                 // fallback if details not yet loaded
+                 wl.author?.emailAddress?.toLowerCase().includes("aroz") ||
+                 wl.author?.displayName?.toLowerCase().includes("imran")
+               );
+               if (isAuthor) {
+                 allRecentWorklogs.push({ ...wl, issueKey: iss.key, issueSummary: iss.fields?.summary });
+               }
+            });
+         }
+         // Include fallback demo worklogs if available
+         if (authType === "demo") {
+           const cached = localStorage.getItem(`jira_demo_worklogs_${iss.key}`);
+           if (cached) {
+             try {
+               const logs = JSON.parse(cached);
+               if (Array.isArray(logs)) {
+                 logs.forEach((wl: any) => {
+                   const isAuthor = currentUserDetails ? (
+                     wl.author?.accountId === currentUserDetails.accountId ||
+                     (wl.author?.emailAddress && wl.author.emailAddress.toLowerCase() === currentUserDetails.emailAddress?.toLowerCase()) ||
+                     wl.author?.displayName === currentUserDetails.displayName
+                   ) : (
+                     wl.author?.emailAddress?.toLowerCase().includes("aroz") ||
+                     wl.author?.displayName?.toLowerCase().includes("imran")
+                   );
+                   if (isAuthor) {
+                     allRecentWorklogs.push({ ...wl, issueKey: iss.key, issueSummary: iss.fields?.summary });
+                   }
+                 });
+               }
+             } catch (e) {}
+           }
+         }
+      });
+      allRecentWorklogs.sort((a, b) => new Date(b.created || 0).getTime() - new Date(a.created || 0).getTime());
+      const recentWorklogs = allRecentWorklogs.slice(0, 5);
+
+      // Build authConfig for the backend AI so it can execute searches dynamically
+      const authConfig: any = { authType };
+      if (authType === "oauth" && oauthTokens && selectedSite) {
+        authConfig.accessToken = oauthTokens.access_token;
+        authConfig.cloudId = selectedSite.id;
+      } else if (authType === "basic" && directConn) {
+        authConfig.domain = directConn.domain;
+        authConfig.email = directConn.email;
+        authConfig.apiToken = directConn.apiToken;
+      }
+
       // Send to server proxy agent endpoint with newly matched context issues
       const response = await fetch("/api/gemini/agent", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${jwtToken}`
+        },
         body: JSON.stringify({
           prompt: userText,
-          issues: finalIssuesConfig
+          issues: finalIssuesConfig,
+          apiKey: geminiApiKey,
+          recentWorklogs,
+          authConfig,
+          userProfile: currentUserDetails || null
         })
       });
 
@@ -416,7 +756,7 @@ export default function App() {
         proposedLogs: resData.proposedLogs || []
       };
 
-      setAiMessages(prev => [...prev, agentMessage]);
+      setAiMessages([...baseMessages, agentMessage]);
     } catch (err: any) {
       const errorMessage = {
         id: `agent-err-${Date.now()}`,
@@ -424,13 +764,52 @@ export default function App() {
         text: `Oops, I ran into an error while analyzing your workflow: ${err.message || "Unknown error."}`,
         isError: true
       };
-      setAiMessages(prev => [...prev, errorMessage]);
+      setAiMessages([...baseMessages, errorMessage]);
     } finally {
       setAiIsLoading(false);
     }
   };
 
-  const handleLogTimeFromAi = async (messageId: string, logIndex: number, issueKey: string, timeSpent: string, commentStr: string) => {
+  const handleQueryAiAgent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!aiInput.trim() || aiIsLoading) return;
+
+    const userText = aiInput.trim();
+    setAiInput("");
+
+    const userMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      text: userText
+    };
+
+    const nextMessages = [...aiMessages, userMessage];
+    setAiMessages(nextMessages);
+    await runAiAgentQuery(userText, nextMessages);
+  };
+
+  const handleRegenerateResponse = async () => {
+    if (aiIsLoading) return;
+    
+    let lastUserIndex = -1;
+    for (let i = aiMessages.length - 1; i >= 0; i--) {
+      if (aiMessages[i].role === "user") {
+        lastUserIndex = i;
+        break;
+      }
+    }
+    
+    if (lastUserIndex === -1) return;
+    
+    const userMessage = aiMessages[lastUserIndex];
+    const userText = userMessage.text;
+    
+    const trimmedMessages = aiMessages.slice(0, lastUserIndex + 1);
+    setAiMessages(trimmedMessages);
+    await runAiAgentQuery(userText, trimmedMessages);
+  };
+
+  const handleLogTimeFromAi = async (messageId: string, logIndex: number, issueKey: string, timeSpent: string, commentStr: string, startedDate?: string) => {
     // Locate the message
     const updatedMessages = aiMessages.map(msg => {
       if (msg.id === messageId && msg.proposedLogs) {
@@ -495,7 +874,7 @@ export default function App() {
           id: `demo-wl-${Date.now()}`,
           author: { displayName: "System Owner", avatarUrls: {} },
           comment: formatCommentADF,
-          created: new Date().toISOString(),
+          created: startedDate || new Date().toISOString(),
           timeSpent: timeSpent
         };
 
@@ -564,10 +943,13 @@ export default function App() {
         }));
       } else {
         // Real Jira API call
-        const payload = {
+        const payload: any = {
           timeSpent: timeSpent,
           comment: formatCommentADF
         };
+        if (startedDate) {
+          payload.started = startedDate;
+        }
 
         const result = await makeProxyCall(`issue/${issueKey}/worklog`, "POST", payload);
         if (result) {
@@ -620,12 +1002,29 @@ export default function App() {
   const [typeFilter, setTypeFilter] = useState<string>("All");
   const [priorityFilter, setPriorityFilter] = useState<string>("All");
 
-  // --- PERSISTENCE SYNCHRONIZER EFFECTS ---
+  // --- SERVER SYNCHRONIZER EFFECTS ---
+  
+  // Sync profiles local updates to server with a 1s debounce
   useEffect(() => {
-    localStorage.setItem("jira_user_profiles", JSON.stringify(profiles));
-  }, [profiles]);
+    if (!jwtToken || !activeProfileId || profiles.length === 0) return;
+    
+    const currentActiveProfile = profiles.find(p => p.id === activeProfileId);
+    if (!currentActiveProfile) return;
 
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        await saveProfileBackend(currentActiveProfile);
+      } catch (err) {
+        console.error("Auto-save connection profile failed:", err);
+      }
+    }, 1000);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [authType, directConn, oauthTokens, selectedSite, geminiApiKey, activeProfileId]);
+
+  // Sync active profile connection settings dynamically in memory
   useEffect(() => {
+    if (profiles.length === 0 || !activeProfileId) return;
     setProfiles(prev => prev.map(p => {
       if (p.id === activeProfileId) {
         return {
@@ -637,37 +1036,53 @@ export default function App() {
           geminiApiKey
         };
       }
-      return prev.find(original => original.id === p.id) || p;
+      return p;
     }));
   }, [authType, directConn, oauthTokens, selectedSite, geminiApiKey, activeProfileId]);
 
+  // Sync chat sessions updates to server with a 1s debounce
   useEffect(() => {
-    localStorage.setItem("jira_auth_type", authType);
-  }, [authType]);
+    if (!jwtToken || !currentSessionId || aiMessages.length === 0) return;
 
-  useEffect(() => {
-    if (oauthTokens) {
-      localStorage.setItem("jira_oauth_tokens", JSON.stringify(oauthTokens));
-    } else {
-      localStorage.removeItem("jira_oauth_tokens");
-    }
-  }, [oauthTokens]);
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const sess = sessions.find(s => s.id === currentSessionId);
+        let name = sess?.name || "New Session";
+        if (name === "New Session" || !name) {
+          const firstUserMsg = aiMessages.find(m => m.role === "user");
+          if (firstUserMsg) {
+            const txt = firstUserMsg.text || "";
+            name = txt.slice(0, 30) + (txt.length > 30 ? "..." : "");
+          }
+        }
 
-  useEffect(() => {
-    if (selectedSite) {
-      localStorage.setItem("jira_selected_site", JSON.stringify(selectedSite));
-    } else {
-      localStorage.removeItem("jira_selected_site");
-    }
-  }, [selectedSite]);
+        const updatedSess = {
+          id: currentSessionId,
+          name,
+          messages: aiMessages,
+          activeProfileId,
+          createdAt: sess?.createdAt || Date.now(),
+          updatedAt: Date.now()
+        };
 
-  useEffect(() => {
-    if (directConn) {
-      localStorage.setItem("jira_direct_conn", JSON.stringify(directConn));
-    } else {
-      localStorage.removeItem("jira_direct_conn");
-    }
-  }, [directConn]);
+        const saved = await saveSessionBackend(updatedSess);
+        setSessions(prev => {
+          const idx = prev.findIndex(s => s.id === currentSessionId);
+          if (idx !== -1) {
+            const copy = [...prev];
+            copy[idx] = saved;
+            return copy;
+          } else {
+            return [saved, ...prev];
+          }
+        });
+      } catch (err) {
+        console.error("Auto-saving chat session failed:", err);
+      }
+    }, 1000);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [aiMessages, currentSessionId]);
 
   // Sync basic credentials forms
   useEffect(() => {
@@ -998,6 +1413,10 @@ export default function App() {
       "x-jira-auth-type": authType,
     };
 
+    if (jwtToken) {
+      headers["Authorization"] = `Bearer ${jwtToken}`;
+    }
+
     if (authType === "oauth") {
       if (!oauthTokens || !selectedSite) throw new Error("OAuth site connection details missing");
       headers["x-jira-access-token"] = oauthTokens.access_token;
@@ -1057,9 +1476,15 @@ export default function App() {
   const attemptTokenRefresh = async (): Promise<AtlassianTokens | null> => {
     if (!oauthTokens?.refresh_token) return null;
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json"
+      };
+      if (jwtToken) {
+        headers["Authorization"] = `Bearer ${jwtToken}`;
+      }
       const res = await fetch("/api/auth/refresh", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ refresh_token: oauthTokens.refresh_token })
       });
       if (res.ok) {
@@ -1077,8 +1502,14 @@ export default function App() {
   const fetchAvailableSites = async (token: string) => {
     setIsLoading(true);
     try {
+      const headers: Record<string, string> = {
+        "x-atlassian-access-token": token
+      };
+      if (jwtToken) {
+        headers["Authorization"] = `Bearer ${jwtToken}`;
+      }
       const res = await fetch("/api/jira/oauth/sites", {
-        headers: { Authorization: `Bearer ${token}` }
+        headers
       });
       if (!res.ok) throw new Error("Failed to retrieve accessible instances from Atlassian");
       const sites = await res.json();
@@ -1097,10 +1528,11 @@ export default function App() {
     try {
       const data = await makeProxyCall("project", "GET");
       if (Array.isArray(data)) {
-        setProjects(data);
-        if (data.length > 0) {
+        const filteredProjects = data.filter((p: any) => p.key === "PR" || (p.name && p.name.toLowerCase().includes("product")));
+        setProjects(filteredProjects);
+        if (filteredProjects.length > 0) {
           // Select project keeping key persistent or fallback
-          setSelectedProject(data[0]);
+          setSelectedProject(filteredProjects[0]);
         }
       } else {
         setProjects([]);
@@ -1276,20 +1708,20 @@ export default function App() {
 
   // Load Spaces when entering Confluence view
   useEffect(() => {
-    if (activeTab === "confluence") {
+    if (activeTab === "docs" && docsSubTab === "wiki") {
       fetchConfluenceSpaces();
     }
-  }, [activeTab, authType, selectedSite, directConn]);
+  }, [activeTab, docsSubTab, authType, selectedSite, directConn]);
 
   // Load pages when selected space updates
   useEffect(() => {
-    if (activeTab === "confluence" && selectedSpace) {
+    if (activeTab === "docs" && docsSubTab === "wiki" && selectedSpace) {
       const key = selectedSpace.key || selectedSpace.id;
       if (key) {
         fetchPagesForSpace(key);
       }
     }
-  }, [selectedSpace, activeTab]);
+  }, [selectedSpace, activeTab, docsSubTab]);
 
   // Fetch issues for selected project
   useEffect(() => {
@@ -1343,7 +1775,11 @@ export default function App() {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const res = await fetch("/api/auth/url");
+      const res = await fetch("/api/auth/url", {
+        headers: {
+          Authorization: `Bearer ${jwtToken}`
+        }
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to initiate OAuth.");
 
@@ -1756,6 +2192,108 @@ export default function App() {
     }
   };
 
+  if (!jwtToken) {
+    return (
+      <div id="auth-root" className="min-h-screen w-full flex items-center justify-center bg-slate-950 font-sans text-white p-6 relative overflow-hidden select-none">
+        {/* Animated Background Mesh */}
+        <div className="absolute inset-0 z-0">
+          <div className="absolute -top-40 -left-40 w-96 h-96 bg-indigo-600/30 rounded-full blur-[100px] animate-pulse duration-4000" />
+          <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-blue-600/30 rounded-full blur-[100px] animate-pulse duration-6000" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-slate-900/60 rounded-full blur-[80px]" />
+        </div>
+
+        {/* Auth Glass Card Container */}
+        <div className="relative z-10 w-full max-w-md bg-slate-900/85 backdrop-blur-xl border border-slate-800 rounded-2xl shadow-2xl p-8 space-y-6 transform transition-all duration-300">
+          {/* Header Branding */}
+          <div className="text-center space-y-2">
+            <div className="mx-auto w-12 h-12 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+              <Activity className="w-6 h-6 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold tracking-tight text-white">
+              {authScreenMode === "login" ? "Welcome back" : "Create an account"}
+            </h2>
+            <p className="text-xs text-slate-400">
+              {authScreenMode === "login"
+                ? "Sign in to access your multi-tenant Jira logs dashboard"
+                : "Register a secure workspace account to log work"}
+            </p>
+          </div>
+
+          {/* Form */}
+          <form onSubmit={handleAuthSubmit} className="space-y-4">
+            {authError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs text-rose-400 font-medium flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                <span>{authError}</span>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Email Address</label>
+              <div className="relative">
+                <input
+                  type="email"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="name@company.com"
+                  disabled={authLoading}
+                  required
+                  className="w-full bg-slate-950/70 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-lg px-4 py-2.5 text-sm placeholder-slate-500 outline-none transition text-white"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Password</label>
+              <div className="relative">
+                <input
+                  type="password"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="••••••••"
+                  disabled={authLoading}
+                  required
+                  className="w-full bg-slate-950/70 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-lg px-4 py-2.5 text-sm placeholder-slate-500 outline-none transition text-white"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800/50 disabled:text-indigo-300 font-semibold rounded-lg transition flex items-center justify-center gap-2 text-sm cursor-pointer shadow-lg shadow-indigo-500/15"
+            >
+              {authLoading ? (
+                <>
+                  <RotateCw className="w-4 h-4 animate-spin" />
+                  <span>Please wait...</span>
+                </>
+              ) : (
+                <span>{authScreenMode === "login" ? "Sign In" : "Register Account"}</span>
+              )}
+            </button>
+          </form>
+
+          {/* Form Switch Mode */}
+          <div className="text-center pt-2 border-t border-slate-800/80">
+            <button
+              onClick={() => {
+                setAuthScreenMode(authScreenMode === "login" ? "register" : "login");
+                setAuthError(null);
+              }}
+              type="button"
+              className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition"
+            >
+              {authScreenMode === "login"
+                ? "Don't have an account? Sign up"
+                : "Already have an account? Log in"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div id="app-root" className="min-h-screen bg-[#F4F5F7] text-[#091E42] font-sans flex flex-col antialiased">
       {/* GLOBAL HEADER BANNER */}
@@ -1801,6 +2339,22 @@ export default function App() {
             <div className="hidden lg:flex items-center space-x-1.5 bg-[#DEEBFF] border border-[#B3D4FF] text-[#0052CC] px-2.5 py-1.25 rounded-md text-xs font-medium">
               <Sparkles className="w-3.5 h-3.5 text-[#0052CC]" />
               <span>Interactive Sandbox - Credentials Optional</span>
+            </div>
+          )}
+
+          {jwtToken && (
+            <div id="user-jwt-profile" className="flex items-center space-x-2 bg-slate-50 border border-[#DFE1E6] px-2.5 py-1 rounded-md text-xs font-medium">
+              <span className="w-5 h-5 rounded-full bg-[#0052CC] text-white flex items-center justify-center font-bold text-[10px] uppercase">
+                {currentUserDetails?.email ? currentUserDetails.email.charAt(0) : "U"}
+              </span>
+              <span className="text-[#172B4D] hidden sm:inline">{currentUserDetails?.email}</span>
+              <button
+                onClick={handleLogout}
+                className="hover:bg-rose-50 hover:text-rose-600 p-1 rounded transition text-[#5E6C84]"
+                title="Log out of application"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
 
@@ -2026,35 +2580,37 @@ export default function App() {
             {/* WORKSPACE PRESETS AND FILTERS TOOLBAR */}
             <div id="toolbar-container" className="bg-white border-b border-[#DFE1E6] px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div id="project-selector-group" className="flex flex-wrap items-center gap-4">
-                {activeTab === "confluence" ? (
-                  /* Space selector dropdown */
-                  <div className="flex items-center space-x-2 animate-fade-in">
-                    <BookOpen className="w-4 h-4 text-[#0052CC]" />
-                    <span className="text-xs text-[#5E6C84] font-semibold uppercase tracking-wider">Confluence Space:</span>
-                    <select
-                      value={selectedSpace?.key || selectedSpace?.id || ""}
-                      onChange={(e) => {
-                        const space = confluenceSpaces.find(s => (s.key === e.target.value || s.id === e.target.value));
-                        if (space) setSelectedSpace(space);
-                      }}
-                      className="bg-white border border-[#DFE1E6] hover:bg-slate-50 text-[#091E42] text-xs font-semibold rounded px-3 py-1.5 outline-none cursor-pointer transition"
-                    >
-                      {confluenceSpaces.length === 0 ? (
-                        <option value="">No Confluence Spaces found</option>
-                      ) : (
-                        confluenceSpaces.map(s => (
-                          <option key={s.id} value={s.key || s.id}>
-                            {s.name} ({s.key || "Space"})
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </div>
-                 ) : activeTab === "api-guide" ? (
-                  <div className="flex items-center space-x-2">
-                    <HelpCircle className="w-4 h-4 text-amber-500 animate-pulse" />
-                    <span className="text-xs font-bold text-amber-700 tracking-wide uppercase">Atlassian Directory & Secrets Finder</span>
-                  </div>
+                {activeTab === "docs" ? (
+                  docsSubTab === "wiki" ? (
+                    /* Space selector dropdown */
+                    <div className="flex items-center space-x-2 animate-fade-in">
+                      <BookOpen className="w-4 h-4 text-[#0052CC]" />
+                      <span className="text-xs text-[#5E6C84] font-semibold uppercase tracking-wider">Confluence Space:</span>
+                      <select
+                        value={selectedSpace?.key || selectedSpace?.id || ""}
+                        onChange={(e) => {
+                          const space = confluenceSpaces.find(s => (s.key === e.target.value || s.id === e.target.value));
+                          if (space) setSelectedSpace(space);
+                        }}
+                        className="bg-white border border-[#DFE1E6] hover:bg-slate-50 text-[#091E42] text-xs font-semibold rounded px-3 py-1.5 outline-none cursor-pointer transition"
+                      >
+                        {confluenceSpaces.length === 0 ? (
+                          <option value="">No Confluence Spaces found</option>
+                        ) : (
+                          confluenceSpaces.map(s => (
+                            <option key={s.id} value={s.key || s.id}>
+                              {s.name} ({s.key || "Space"})
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+                  ) : (
+                    <div className="flex items-center space-x-2 animate-fade-in">
+                      <HelpCircle className="w-4 h-4 text-amber-500 animate-pulse" />
+                      <span className="text-xs font-bold text-amber-700 tracking-wide uppercase">Atlassian Directory & Secrets Finder</span>
+                    </div>
+                  )
                 ) : (
                   /* Project selector dropdown */
                   <div className="flex items-center space-x-2">
@@ -2095,25 +2651,21 @@ export default function App() {
                       Backlog
                     </button>
                     <button
-                      onClick={() => setActiveTab("confluence")}
-                      className={`px-3 py-1 rounded text-xs font-semibold transition flex items-center gap-1.5 ${activeTab === "confluence" ? "bg-white text-[#091E42] shadow-xs" : "text-[#5E6C84] hover:text-[#091E42]"}`}
+                      onClick={() => {
+                        setActiveTab("docs");
+                        setDocsSubTab("wiki");
+                      }}
+                      className={`px-3 py-1 rounded text-xs font-semibold transition flex items-center gap-1.5 ${activeTab === "docs" ? "bg-white text-[#091E42] shadow-xs" : "text-[#5E6C84] hover:text-[#091E42]"}`}
                     >
                       <BookOpen className="w-3.5 h-3.5 text-[#0052CC]" />
-                      Confluence wiki
+                      Docs & Wiki
                     </button>
                     <button
                       onClick={() => setActiveTab("profiles")}
                       className={`px-3 py-1 rounded text-xs font-semibold transition flex items-center gap-1.5 ${activeTab === "profiles" ? "bg-indigo-100 border border-indigo-200 text-indigo-800" : "text-[#5E6C84] hover:text-[#0052CC]"}`}
                     >
-                      <Users className="w-3.5 h-3.5" />
-                      User Profiles
-                    </button>
-                    <button
-                      onClick={() => setActiveTab("api-guide")}
-                      className={`px-3 py-1 rounded text-xs font-semibold transition flex items-center gap-1.5 ${activeTab === "api-guide" ? "bg-amber-100 border border-amber-200 text-amber-800" : "text-amber-700 hover:text-amber-800"}`}
-                    >
-                      <HelpCircle className="w-3.5 h-3.5" />
-                      Developer Guide
+                      <User className="w-3.5 h-3.5" />
+                      My Profile
                     </button>
                   </div>
 
@@ -2130,9 +2682,9 @@ export default function App() {
               </div>
 
               {/* SEARCH FILTERING SELECTION */}
-              {activeTab !== "api-guide" && activeTab !== "profiles" && (
+              {activeTab !== "profiles" && (activeTab !== "docs" || docsSubTab === "wiki") && (
                 <div id="filtering-dock" className="flex flex-wrap items-center gap-3.5">
-                  {activeTab === "confluence" ? (
+                  {activeTab === "docs" ? (
                     <>
                       <div className="relative shrink-0 max-w-xs w-full">
                         <Search className="w-4 h-4 text-[#5E6C84] absolute left-3 top-1/2 -translate-y-1/2" />
@@ -2410,157 +2962,330 @@ export default function App() {
                     )}
                   </div>
                 </div>
-              ) : activeTab === "confluence" ? (                  /* CONFLUENCE SPA WIKI SUB-VIEWPORT */
-                <div id="confluence-wiki-viewport" className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[500px] h-[calc(100vh-270px)]">
-                  {/* Left Column: List of Pages inside selected Space */}
-                  <div className="lg:col-span-4 bg-white border border-[#DFE1E6] rounded p-4 flex flex-col space-y-4 h-full overflow-hidden">
-                    <div className="flex items-center justify-between border-b border-[#DFE1E6] pb-3">
-                      <div>
-                        <h3 className="text-xs font-bold text-[#0052CC] tracking-wider uppercase">
-                          {selectedSpace ? (selectedSpace.name || selectedSpace.key) : "Confluence Spaces"}
-                        </h3>
-                        <p className="text-[10px] text-[#5E6C84] mt-0.5 font-semibold">
-                          {confluencePages.length} active documents
-                        </p>
-                      </div>
-                      
-                      {selectedSpace && (
-                        <div className="bg-[#DEEBFF] text-[10px] font-mono px-2 py-0.5 rounded text-[#0052CC] font-bold border border-[#B3D4FF]">
-                          {selectedSpace.key || selectedSpace.id}
-                        </div>
+              ) : activeTab === "docs" ? (
+                /* CONSOLIDATED DOCS & WIKI VIEWPORT */
+                <div className="space-y-6">
+                  {/* Secondary Sub-tab Navigation */}
+                  <div className="flex border-b border-[#DFE1E6] space-x-6">
+                    <button
+                      type="button"
+                      onClick={() => setDocsSubTab("wiki")}
+                      className={`pb-2.5 text-xs font-bold uppercase tracking-wider transition-all relative cursor-pointer ${
+                        docsSubTab === "wiki" ? "text-[#0052CC]" : "text-[#5E6C84] hover:text-[#172B4D]"
+                      }`}
+                    >
+                      Wiki (Confluence)
+                      {docsSubTab === "wiki" && (
+                        <motion.div layoutId="activeDocsSubLine" className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#0052CC]" />
                       )}
-                    </div>
-
-                    {isFetchingConfluence && confluencePages.length === 0 ? (
-                      <div className="flex-1 flex flex-col justify-center items-center py-12 space-y-2">
-                        <RotateCw className="w-5 h-5 animate-spin text-[#0052CC]" />
-                        <p className="text-[11px] text-[#5E6C84] font-mono">Retrieving page indexes...</p>
-                      </div>
-                    ) : (
-                      <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
-                        {confluencePages
-                          .filter(page => {
-                            if (!searchQuery) return true;
-                            const query = searchQuery.toLowerCase();
-                            return (
-                              page.title?.toLowerCase().includes(query) ||
-                              page.id?.toString().toLowerCase().includes(query)
-                            );
-                          })
-                          .map(page => {
-                            const isSelected = selectedPage?.id === page.id;
-                            const editedDate = page.history?.createdDate 
-                              ? new Date(page.history.createdDate).toLocaleDateString() 
-                              : "Recently updated";
-                            return (
-                              <button
-                                key={page.id}
-                                onClick={() => setSelectedPage(page)}
-                                className={`w-full text-left p-3 rounded border transition-all duration-200 select-none cursor-pointer flex flex-col space-y-2 ${
-                                  isSelected 
-                                    ? "bg-[#DEEBFF] border-[#0052CC] text-[#0747A6] shadow-xs" 
-                                    : "bg-white border-[#DFE1E6] hover:bg-[#F4F5F7] text-[#172B4D]"
-                                }`}
-                              >
-                                <div className="flex items-start justify-between gap-1">
-                                  <span className="text-xs font-semibold leading-relaxed truncate flex-1">
-                                    {page.title}
-                                  </span>
-                                  <FileText className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${isSelected ? "text-[#0052CC]" : "text-[#5E6C84]"}`} />
-                                </div>
-                                
-                                <div className="flex items-center justify-between text-[10px] text-[#5E6C84] font-mono">
-                                  <span>ID: {page.id}</span>
-                                  <span>{editedDate}</span>
-                                </div>
-                              </button>
-                            );
-                          })}
-
-                        {confluencePages.length === 0 && (
-                          <div className="h-48 border border-dashed border-slate-300 rounded flex flex-col items-center justify-center text-slate-500 p-4 text-center">
-                            <BookOpen className="w-6 h-6 text-slate-400 mb-2" />
-                            <p className="text-xs font-semibold text-[#172B4D] mb-1">No pages found inside space</p>
-                            <p className="text-[10px] leading-relaxed text-[#5E6C84] max-w-[200px]">
-                              To read wikis, ensure you have set up pages inside the Space key <b className="text-[#091E42]">"{selectedSpace?.key || "DEV"}"</b> on Confluence.
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDocsSubTab("guide")}
+                      className={`pb-2.5 text-xs font-bold uppercase tracking-wider transition-all relative cursor-pointer ${
+                        docsSubTab === "guide" ? "text-[#0052CC]" : "text-[#5E6C84] hover:text-[#172B4D]"
+                      }`}
+                    >
+                      Developer Guide
+                      {docsSubTab === "guide" && (
+                        <motion.div layoutId="activeDocsSubLine" className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#0052CC]" />
+                      )}
+                    </button>
                   </div>
 
-                  {/* Right Column: HTML Content Reader */}
-                  <div className="lg:col-span-8 bg-white border border-[#DFE1E6] rounded p-5 flex flex-col h-full overflow-hidden">
-                    {selectedPage ? (
-                      <div className="flex flex-col h-full space-y-4 overflow-hidden animate-fade-in">
-                        {/* Pages header */}
-                        <div className="border-b border-[#DFE1E6] pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0">
+                  {docsSubTab === "wiki" ? (
+                    /* CONFLUENCE SPA WIKI SUB-VIEWPORT */
+                    <div id="confluence-wiki-viewport" className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[500px] h-[calc(100vh-320px)] animate-fade-in">
+                      {/* Left Column: List of Pages inside selected Space */}
+                      <div className="lg:col-span-4 bg-white border border-[#DFE1E6] rounded p-4 flex flex-col space-y-4 h-full overflow-hidden">
+                        <div className="flex items-center justify-between border-b border-[#DFE1E6] pb-3">
                           <div>
-                            <span className="text-[10px] font-bold text-[#0052CC] font-mono uppercase bg-[#DEEBFF] border border-[#B3D4FF] px-2.5 py-1 rounded inline-block mb-1.5">
-                              Confluence Doc Reference
-                            </span>
-                            <h2 className="text-base font-bold text-[#091E42] tracking-tight">
-                              {selectedPage.title}
-                            </h2>
-                            <p className="text-[10px] text-[#5E6C84] font-mono mt-1">
-                              Page ID: <span className="text-[#091E42] font-semibold">{selectedPage.id}</span> • Space: <span className="text-[#091E42] font-semibold">{selectedSpace?.name || selectedSpace?.key || "Wiki"}</span>
+                            <h3 className="text-xs font-bold text-[#0052CC] tracking-wider uppercase">
+                              {selectedSpace ? (selectedSpace.name || selectedSpace.key) : "Confluence Spaces"}
+                            </h3>
+                            <p className="text-[10px] text-[#5E6C84] mt-0.5 font-semibold">
+                              {confluencePages.length} active documents
                             </p>
                           </div>
-
-                          <div className="flex items-center space-x-2.5">
-                            {authType !== "demo" && (
-                              <a
-                                href={`https://${directConn.domain || "atlassian.net"}/wiki/spaces/${selectedSpace?.key || "DEV"}/pages/${selectedPage.id}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="px-3 py-1.5 bg-[#EBECF0] border border-[#DFE1E6] hover:bg-[#DFE1E6] text-[#42526E] hover:text-[#091E42] text-[11px] rounded transition flex items-center space-x-1.5 font-medium cursor-pointer"
-                              >
-                                <ExternalLink className="w-3 h-3" />
-                                <span>Target Atlassian Page</span>
-                              </a>
-                            )}
-                          </div>
+                          
+                          {selectedSpace && (
+                            <div className="bg-[#DEEBFF] text-[10px] font-mono px-2 py-0.5 rounded text-[#0052CC] font-bold border border-[#B3D4FF]">
+                              {selectedSpace.key || selectedSpace.id}
+                            </div>
+                          )}
                         </div>
 
-                        {/* Beautifully rendered iframe-grade wiki layout */}
-                        <div className="flex-1 overflow-y-auto pr-1">
-                          <div 
-                            className="text-[#172B4D] text-xs leading-relaxed space-y-4 font-sans select-text p-1.5 max-w-none prose prose-slate"
-                            style={{
-                              lineHeight: "1.75rem",
-                              letterSpacing: "0.0125em",
-                            }}
-                          >
-                            {selectedPage.body?.view?.value ? (
-                              <div 
-                                dangerouslySetInnerHTML={{ __html: selectedPage.body.view.value }} 
-                                className="confluence-custom-inner-html"
-                              />
-                            ) : (
-                              <div className="py-12 bg-[#F4F5F7] border border-[#DFE1E6] p-6 rounded text-center flex flex-col items-center justify-center text-[#5E6C84]">
-                                <FileText className="w-8 h-8 text-[#42526E] mb-2" />
-                                <p className="text-xs font-semibold text-[#091E42] mb-1">Body empty or unreadable</p>
-                                <p className="text-[10px] text-[#5E6C84] max-w-sm">
-                                  There is no HTML preview block stored on Atlassian for this page, or we are waiting for permission scope grants.
+                        {isFetchingConfluence && confluencePages.length === 0 ? (
+                          <div className="flex-1 flex flex-col justify-center items-center py-12 space-y-2">
+                            <RotateCw className="w-5 h-5 animate-spin text-[#0052CC]" />
+                            <p className="text-[11px] text-[#5E6C84] font-mono">Retrieving page indexes...</p>
+                          </div>
+                        ) : (
+                          <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+                            {confluencePages
+                              .filter(page => {
+                                if (!searchQuery) return true;
+                                const query = searchQuery.toLowerCase();
+                                return (
+                                  page.title?.toLowerCase().includes(query) ||
+                                  page.id?.toString().toLowerCase().includes(query)
+                                );
+                              })
+                              .map(page => {
+                                const isSelected = selectedPage?.id === page.id;
+                                const editedDate = page.history?.createdDate 
+                                  ? new Date(page.history.createdDate).toLocaleDateString() 
+                                  : "Recently updated";
+                                return (
+                                  <button
+                                    key={page.id}
+                                    onClick={() => setSelectedPage(page)}
+                                    className={`w-full text-left p-3 rounded border transition-all duration-200 select-none cursor-pointer flex flex-col space-y-2 ${
+                                      isSelected 
+                                        ? "bg-[#DEEBFF] border-[#0052CC] text-[#0747A6] shadow-xs" 
+                                        : "bg-white border-[#DFE1E6] hover:bg-[#F4F5F7] text-[#172B4D]"
+                                    }`}
+                                  >
+                                    <div className="flex items-start justify-between gap-1">
+                                      <span className="text-xs font-semibold leading-relaxed truncate flex-1">
+                                        {page.title}
+                                      </span>
+                                      <FileText className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${isSelected ? "text-[#0052CC]" : "text-[#5E6C84]"}`} />
+                                    </div>
+                                    
+                                    <div className="flex items-center justify-between text-[10px] text-[#5E6C84] font-mono">
+                                      <span>ID: {page.id}</span>
+                                      <span>{editedDate}</span>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+
+                            {confluencePages.length === 0 && (
+                              <div className="h-48 border border-dashed border-slate-300 rounded flex flex-col items-center justify-center text-slate-500 p-4 text-center">
+                                <BookOpen className="w-6 h-6 text-slate-400 mb-2" />
+                                <p className="text-xs font-semibold text-[#172B4D] mb-1">No pages found inside space</p>
+                                <p className="text-[10px] leading-relaxed text-[#5E6C84] max-w-[200px]">
+                                  To read wikis, ensure you have set up pages inside the Space key <b className="text-[#091E42]">"{selectedSpace?.key || "DEV"}"</b> on Confluence.
                                 </p>
                               </div>
                             )}
                           </div>
+                        )}
+                      </div>
+
+                      {/* Right Column: HTML Content Reader */}
+                      <div className="lg:col-span-8 bg-white border border-[#DFE1E6] rounded p-5 flex flex-col h-full overflow-hidden">
+                        {selectedPage ? (
+                          <div className="flex flex-col h-full space-y-4 overflow-hidden animate-fade-in">
+                            {/* Pages header */}
+                            <div className="border-b border-[#DFE1E6] pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0">
+                              <div>
+                                <span className="text-[10px] font-bold text-[#0052CC] font-mono uppercase bg-[#DEEBFF] border border-[#B3D4FF] px-2.5 py-1 rounded inline-block mb-1.5">
+                                  Confluence Doc Reference
+                                </span>
+                                <h2 className="text-base font-bold text-[#091E42] tracking-tight">
+                                  {selectedPage.title}
+                                </h2>
+                                <p className="text-[10px] text-[#5E6C84] font-mono mt-1">
+                                  Page ID: <span className="text-[#091E42] font-semibold">{selectedPage.id}</span> • Space: <span className="text-[#091E42] font-semibold">{selectedSpace?.name || selectedSpace?.key || "Wiki"}</span>
+                                </p>
+                              </div>
+
+                              <div className="flex items-center space-x-2.5">
+                                {authType !== "demo" && directConn && (
+                                  <a
+                                    href={`https://${directConn.domain || "atlassian.net"}/wiki/spaces/${selectedSpace?.key || "DEV"}/pages/${selectedPage.id}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="px-3 py-1.5 bg-[#EBECF0] border border-[#DFE1E6] hover:bg-[#DFE1E6] text-[#42526E] hover:text-[#091E42] text-[11px] rounded transition flex items-center space-x-1.5 font-medium cursor-pointer"
+                                  >
+                                    <ExternalLink className="w-3 h-3" />
+                                    <span>Target Atlassian Page</span>
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Beautifully rendered iframe-grade wiki layout */}
+                            <div className="flex-1 overflow-y-auto pr-1">
+                              <div 
+                                className="text-[#172B4D] text-xs leading-relaxed space-y-4 font-sans select-text p-1.5 max-w-none prose prose-slate"
+                                style={{
+                                  lineHeight: "1.75rem",
+                                  letterSpacing: "0.0125em",
+                                }}
+                              >
+                                {selectedPage.body?.view?.value ? (
+                                  <div 
+                                    dangerouslySetInnerHTML={{ __html: selectedPage.body.view.value }} 
+                                    className="confluence-custom-inner-html"
+                                  />
+                                ) : (
+                                  <div className="py-12 bg-[#F4F5F7] border border-[#DFE1E6] p-6 rounded text-center flex flex-col items-center justify-center text-[#5E6C84]">
+                                    <FileText className="w-8 h-8 text-[#42526E] mb-2" />
+                                    <p className="text-xs font-semibold text-[#091E42] mb-1">Body empty or unreadable</p>
+                                    <p className="text-[10px] text-[#5E6C84] max-w-sm">
+                                      There is no HTML preview block stored on Atlassian for this page, or we are waiting for permission scope grants.
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex-1 flex flex-col justify-center items-center text-center p-6 text-slate-500 border border-dashed border-[#DFE1E6] rounded bg-slate-50">
+                            <BookOpen className="w-10 h-10 text-[#0052CC] mb-3 animate-pulse" />
+                            <h4 className="text-xs font-bold text-[#091E42] uppercase tracking-wider">
+                              Confluence Space Wiki Browser
+                            </h4>
+                            <p className="text-[11px] leading-relaxed text-[#5E6C84] max-w-sm mt-1.5">
+                              Select a Space from the toolbar dropdown and choose a document from the lists to view detailed Atlassian documentation natively!
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    /* INSTRUCTIONAL BENTO SECRETS DIRECTORY & CREDENTIALS FINDER */
+                    <div id="credentials-api-directory" className="space-y-6 animate-fade-in text-sans">
+                      <div className="bg-[#FFFAE6] border border-[#FFE380] rounded p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div className="flex items-start space-x-3.5">
+                          <HelpCircle className="w-10 h-10 text-amber-500 shrink-0 mt-0.5" />
+                          <div>
+                            <h2 className="text-sm font-bold text-[#172B4D] uppercase">
+                              Secrets Finder & Connection Directory
+                            </h2>
+                            <p className="text-xs text-[#5E6C84] leading-relaxed max-w-2xl mt-1 font-medium">
+                              Find out exactly where to look up your Atlassian Jira and Confluence credentials. Connect with real workspace profiles, projects, tickets, and spaces effortlessly.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="bg-white rounded border border-[#DFE1E6] px-3.5 py-2.5 shrink-0 text-center">
+                          <p className="text-[10px] text-[#5E6C84] uppercase tracking-widest font-semibold">Current Site</p>
+                          <span className="text-xs font-bold text-[#0052CC] font-mono">{directConn?.domain || "demo"}</span>
                         </div>
                       </div>
-                    ) : (
-                      <div className="flex-1 flex flex-col justify-center items-center text-center p-6 text-slate-500 border border-dashed border-[#DFE1E6] rounded bg-slate-50">
-                        <BookOpen className="w-10 h-10 text-[#0052CC] mb-3 animate-pulse" />
-                        <h4 className="text-xs font-bold text-[#091E42] uppercase tracking-wider">
-                          Confluence Space Wiki Browser
-                        </h4>
-                        <p className="text-[11px] leading-relaxed text-[#5E6C84] max-w-sm mt-1.5">
-                          Select a Space from the toolbar dropdown and choose a document from the lists to view detailed Atlassian documentation natively!
-                        </p>
+
+                      {/* Bento Grid Directory Items */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5.5">
+                        {/* Item 1: Jira/Confluence Subdomain prefix */}
+                        <div className="bg-white border border-[#DFE1E6] hover:border-[#4c86e0] rounded p-5 flex flex-col justify-between space-y-4 shadow-3xs transition">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-[#0052CC] uppercase tracking-widest">Atlassian Domain</span>
+                              <span className="text-[10px] bg-[#EBECF0] text-[#172B4D] px-2 py-0.5 rounded font-mono font-bold">Domain Input</span>
+                            </div>
+                            <h3 className="text-xs font-bold text-[#091E42] tracking-wider">Where is the Atlassian domain?</h3>
+                            <p className="text-[11px] leading-relaxed text-[#5E6C84]">
+                              This is your private organization subdomain prefix mapped in your address browser bar when you are actively logged in to your Atlassian profile.
+                            </p>
+                            <div className="bg-[#FAFBFC] border border-[#DFE1E6] rounded p-3 text-[10px] font-mono leading-relaxed text-[#172B4D]">
+                              URL structure: <code className="text-emerald-700 font-bold select-all">https://your-company.atlassian.net/...</code>
+                              <br />
+                              Here, your subdomain is: <code className="text-indigo-700">your-company.atlassian.net</code>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                            <button
+                              onClick={() => handleCopyToClipboard("joblogic.atlassian.net", "copied-domain")}
+                              className="px-3 py-1.5 bg-[#F4F5F7] hover:bg-[#EAEAEF] text-[11px] font-semibold rounded font-mono border border-[#DFE1E6] text-[#42526E] hover:text-[#091E42] transition cursor-pointer select-none"
+                            >
+                              {copiedText === "copied-domain" ? "✓ Copied Preset Domain!" : "Copy joblogic Preset"}
+                            </button>
+                            <span className="text-[10px] text-[#5E6C84] font-mono">Required for direct calls</span>
+                          </div>
+                        </div>
+
+                        {/* Item 2: User Account Email */}
+                        <div className="bg-white border border-[#DFE1E6] hover:border-[#4c86e0] rounded p-5 flex flex-col justify-between space-y-4 shadow-3xs transition">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-violet-600 uppercase tracking-widest">User Profile Email</span>
+                              <span className="text-[10px] bg-[#EBECF0] text-[#172B4D] px-2 py-0.5 rounded font-mono font-bold">Email Input</span>
+                            </div>
+                            <h3 className="text-xs font-bold text-[#091E42] tracking-wider">Which email should be used?</h3>
+                            <p className="text-[11px] leading-relaxed text-[#5E6C84]">
+                              Supply the exact personal or enterprise email account address that maps to your Atlassian ID profile. You must have access to spaces and boards.
+                            </p>
+                            <div className="bg-[#FAFBFC] border border-[#DFE1E6] rounded p-3 text-[10px] font-mono leading-relaxed text-[#172B4D]">
+                              Email profile mapping: <code className="text-indigo-700 select-all font-bold">arozi@joblogic.com</code>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                            <button
+                              onClick={() => handleCopyToClipboard("arozi@joblogic.com", "copied-email")}
+                              className="px-3 py-1.5 bg-[#F4F5F7] hover:bg-[#EAEAEF] text-[11px] font-semibold rounded font-mono border border-[#DFE1E6] text-[#42526E] hover:text-[#091E42] transition cursor-pointer select-none"
+                            >
+                              {copiedText === "copied-email" ? "✓ Copied Preset Email!" : "Copy arozi Preset"}
+                            </button>
+                            <span className="text-[10px] text-[#5E6C84] font-mono">Case-sensitive matching</span>
+                          </div>
+                        </div>
+
+                        {/* Item 3: Jira Secrets API Token */}
+                        <div className="bg-white border border-[#DFE1E6] hover:border-[#4c86e0] rounded p-5 flex flex-col justify-between space-y-4 shadow-3xs transition">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Atlassian API Secrets Token</span>
+                              <span className="text-[10px] bg-[#FFFAE6] border border-[#FFE380] text-amber-700 px-2 py-0.5 rounded font-mono font-bold">API Token Input</span>
+                            </div>
+                            <h3 className="text-xs font-bold text-[#091E42] tracking-wider">How to create Jira API security tokens?</h3>
+                            <p className="text-[11px] leading-relaxed text-[#5E6C84]">
+                              Do NOT enter your login password. Atlassian requires an authenticated API token for third-party client integrations.
+                            </p>
+                            <ol className="text-[10px] space-y-1 bg-[#FAFBFC] border border-[#DFE1E6] rounded p-3 pr-1 list-decimal list-inside text-[#172B4D]">
+                              <li>Go to <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noreferrer" className="text-[#0052CC] underline inline-flex items-center gap-0.5 font-semibold">id.atlassian.com/manage-profile/security/api-tokens <ExternalLink className="w-2.5 h-2.5" /></a></li>
+                              <li>Click the <b className="text-[#091E42]">"Create API token"</b> button</li>
+                              <li>Enter label (e.g. Jira Dashboard Explorer), copy the code string</li>
+                            </ol>
+                          </div>
+
+                          <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                            <button
+                              onClick={() => handleCopyToClipboard("ATATT3xFfGF0HBBODDhtDu_MbDQ5KBCgebWZkcMKpPsisCmTS0VxtH75BOKlQXOZ3DOGOc6sTfrmqu0ALc-STybZqMSxNo6aXi673n4jeiMGd3n-j8Nwy_he8_GqfKl5Ff6OodrCN8LIFB03ToqTtdpnZVewQTpJPoe3xjCVP8bLYqMYCQlNnXw=EE96D05E", "copied-token")}
+                              className="px-3 py-1.5 bg-[#F4F5F7] hover:bg-[#EAEAEF] text-[11px] font-semibold rounded font-mono border border-[#DFE1E6] text-[#42526E] hover:text-[#091E42] transition cursor-pointer select-none"
+                            >
+                              {copiedText === "copied-token" ? "✓ Copied Key!" : "Copy Atlassian Token"}
+                            </button>
+                            <span className="text-[10px] text-[#5E6C84] font-mono">Starts with "ATATT"</span>
+                          </div>
+                        </div>
+
+                        {/* Item 4: Jira Project Key list */}
+                        <div className="bg-white border border-[#DFE1E6] hover:border-[#4c86e0] rounded p-5 flex flex-col justify-between space-y-4 shadow-3xs transition">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Jira Project Key</span>
+                              <span className="text-[10px] bg-[#EBECF0] text-[#172B4D] px-2 py-0.5 rounded font-mono font-bold">Ticket Identifier</span>
+                            </div>
+                            <h3 className="text-xs font-bold text-[#091E42] tracking-wider">How to locate Jira project keys?</h3>
+                            <p className="text-[11px] leading-relaxed text-[#5E6C84]">
+                              The project key is the short uppercase abbreviation representing your project tickets in the board (e.g., ticket ID is "MAR-12" where project key is "MAR").
+                            </p>
+                            <div className="bg-[#FAFBFC] border border-[#DFE1E6] rounded p-3 text-[10px] font-mono leading-relaxed text-[#172B4D]">
+                              Find keys at: Jira Navigation &gt; <b className="text-[#091E42]">Projects</b> list.
+                              <br />
+                              Preset keys: <code className="text-emerald-700 font-bold">MAR</code>, <code className="text-indigo-700 font-bold">DEV</code>, <code className="text-amber-700 font-bold">PROJ</code>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                            <button
+                              onClick={() => handleCopyToClipboard("MAR", "copied-key")}
+                              className="px-3 py-1.5 bg-[#F4F5F7] hover:bg-[#EAEAEF] text-[11px] font-semibold rounded font-mono border border-[#DFE1E6] text-[#42526E] hover:text-[#091E42] transition cursor-pointer select-none"
+                            >
+                              {copiedText === "copied-key" ? "✓ Copied 'MAR' Key!" : "Copy 'MAR' Key"}
+                            </button>
+                            <span className="text-[10px] text-[#5E6C84] font-mono">Alphanumeric prefix</span>
+                          </div>
+                        </div>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               ) : activeTab === "profiles" ? (
                 /* CONFIGURATION AND COLLABORATING PROFILES PAGE */
@@ -2571,9 +3296,9 @@ export default function App() {
                         <Users className="w-6 h-6" />
                       </div>
                       <div>
-                        <h2 className="text-sm font-bold text-[#091E42]">Atlassian Connection Profiles Manager</h2>
+                        <h2 className="text-sm font-bold text-[#091E42]">My Profile Connection Manager</h2>
                         <p className="text-[11px] text-[#5E6C84] mt-1 leading-relaxed max-w-xl font-medium">
-                          Securely store and swap between credential profiles for multiple users in your team. Your access codes, API tokens, and domains are cached safely nested inside your browser sandbox local storage.
+                          Securely store and swap between credential profiles for multiple workspaces. Your access codes, API tokens, and domains are saved securely on the server, segregated by your user account.
                         </p>
                       </div>
                     </div>
@@ -2701,7 +3426,8 @@ export default function App() {
                                 apiToken: profileFormToken.trim() || ""
                               } : null,
                               oauthTokens: null,
-                              selectedSite: null
+                              selectedSite: null,
+                              geminiApiKey: profileFormGeminiKey.trim() || null
                             };
 
                             setProfiles(prev => [...prev, newProfile]);
@@ -2716,6 +3442,29 @@ export default function App() {
                       </div>
                     </div>
                   )}
+
+                  {/* Active Profile Gemini Key Setting */}
+                  <div className="bg-[#FAFBFC] border border-[#DFE1E6] rounded-xl p-5 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
+                    <div className="flex-1 space-y-1">
+                      <label className="text-xs font-bold text-[#091E42] flex items-center gap-1.5 uppercase tracking-wide">
+                        <Sparkles className="w-4 h-4 text-purple-500" />
+                        Active Profile AI Key
+                      </label>
+                      <p className="text-[10px] text-[#5E6C84]">
+                        Set a custom Gemini API Key for the currently active profile. If empty, the server's default key is used.
+                      </p>
+                    </div>
+                    <div className="flex-1 w-full relative">
+                      <KeyRound className="w-4 h-4 text-[#5E6C84] absolute left-3 top-1/2 transform -translate-y-1/2" />
+                      <input
+                        type="password"
+                        placeholder="AIzaSy..."
+                        value={geminiApiKey || ""}
+                        onChange={(e) => setGeminiApiKey(e.target.value || null)}
+                        className="w-full pl-9 pr-3 py-2.5 bg-white border border-[#DFE1E6] focus:border-purple-500 focus:ring-1 focus:ring-purple-500 rounded-lg text-xs text-[#091E42] outline-none transition shadow-inner"
+                      />
+                    </div>
+                  </div>
 
                   {/* Profile Cards Grid list */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -2799,8 +3548,12 @@ export default function App() {
                               <button
                                 onClick={() => {
                                   if (confirm(`Are you sure you want to delete profile "${prf.name}"? This is irreversible.`)) {
-                                    setProfiles(prev => prev.filter(p => p.id !== prf.id));
-                                    setProfileMessage(`Deleted connection profile "${prf.name}" from your configurations list.`);
+                                    deleteProfileBackend(prf.id).then(() => {
+                                      setProfiles(prev => prev.filter(p => p.id !== prf.id));
+                                      setProfileMessage(`Deleted connection profile "${prf.name}" from your configurations list.`);
+                                    }).catch(err => {
+                                      setErrorMessage(`Failed to delete profile: ${err.message}`);
+                                    });
                                   }
                                 }}
                                 className="text-[10px] text-rose-600 hover:underline font-bold px-2 py-1 transition cursor-pointer select-none"
@@ -3486,23 +4239,24 @@ export default function App() {
               className="absolute inset-0 bg-[#091E42]/50 cursor-pointer backdrop-blur-[2px]"
             />
 
-            {/* Slide-out Drawer Panel */}
+            {/* Slide-out Floating Panel */}
             <motion.div
-              initial={{ x: "100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "100%" }}
+              initial={{ x: "100%", opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: "100%", opacity: 0 }}
               transition={{ type: "spring", damping: 25, stiffness: 220 }}
-              className="relative w-full max-w-md h-full bg-white border-l border-[#DFE1E6] shadow-2xl flex flex-col"
+              className="relative w-full max-w-md bg-white border border-[#DFE1E6] shadow-2xl flex flex-col m-4 rounded-2xl overflow-hidden resize"
+              style={{ height: 'calc(100vh - 32px)', minWidth: '320px', minHeight: '400px' }}
             >
               {/* Drawer Header */}
-              <div className="p-4 bg-[#FAFBFC] border-b border-[#DFE1E6] flex items-center justify-between">
+              <div className="p-4 bg-[#FAFBFC] border-b border-[#DFE1E6] flex items-center justify-between shrink-0">
                 <div className="flex items-center space-x-2">
                   <div className="w-8 h-8 rounded-lg bg-[#EAE6FF] border border-[#C0B6F2] flex items-center justify-center text-[#403294]">
-                    <Bot className="w-4 h-4 animate-pulse" />
+                    <Users className="w-4 h-4 animate-pulse" />
                   </div>
                   <div>
                     <h3 className="font-bold text-sm text-[#091E42] flex items-center gap-1.5 leading-none">
-                      Jira AI Co-Pilot
+                      AI Product Ops Team
                       <Sparkles className="w-3.5 h-3.5 text-[#0052CC]" />
                     </h3>
                     <p className="text-[10px] text-[#5E6C84] mt-0.5 uppercase tracking-wide font-bold">
@@ -3510,163 +4264,270 @@ export default function App() {
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setIsAiOpen(false)}
-                  className="w-7 h-7 rounded bg-[#F4F5F7] hover:bg-[#EBECF0] border border-[#DFE1E6] flex items-center justify-center text-[#5E6C84] hover:text-[#091E42] transition cursor-pointer font-bold text-xs"
-                >
-                  ✕
-                </button>
+                <div className="flex items-center space-x-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsHistoryOpen(!isHistoryOpen)}
+                    className={`w-7 h-7 rounded border flex items-center justify-center transition cursor-pointer ${
+                      isHistoryOpen 
+                        ? "bg-[#EAE6FF] border-[#C0B6F2] text-[#403294]" 
+                        : "bg-[#F4F5F7] hover:bg-[#EBECF0] border-[#DFE1E6] text-[#5E6C84] hover:text-[#091E42]"
+                    }`}
+                    title="Chat History"
+                  >
+                    <Clock className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsAiOpen(false)}
+                    className="w-7 h-7 rounded bg-[#F4F5F7] hover:bg-[#EBECF0] border border-[#DFE1E6] flex items-center justify-center text-[#5E6C84] hover:text-[#091E42] transition cursor-pointer font-bold text-xs"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
 
-              {/* Chat Messages List */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white">
-                {aiMessages.map((msg) => (
-                  <div key={msg.id} className={`flex flex-col space-y-1.5 ${msg.role === "user" ? "items-end" : "items-start"}`}>
-                    {/* Role header label */}
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-[#5E6C84] pl-1">
-                      {msg.role === "user" ? "You" : "AI Agent"}
-                    </span>
-
-                    {/* Bubble content */}
-                    <div className={`p-3.5 rounded-2xl max-w-[92%] text-xs leading-relaxed shadow-3xs ${
-                      msg.role === "user" 
-                        ? "bg-[#E3F2FD] border border-[#90CAF9] text-[#0D47A1] rounded-tr-none font-semibold" 
-                        : msg.isError
-                          ? "bg-[#FFECEC] border border-[#FFBDAD] text-[#BF2600] rounded-tl-none font-semibold font-mono"
-                          : "bg-[#FAFBFC] border border-[#DFE1E6] text-[#172B4D] rounded-tl-none font-medium"
-                    }`}>
-                      <p className="whitespace-pre-wrap select-text">{msg.text}</p>
-
-                      {/* Proposed worklogs breakdown card */}
-                      {msg.proposedLogs && msg.proposedLogs.length > 0 && (
-                        <div className="mt-3.5 space-y-3 bg-white p-3 rounded-lg border border-[#DFE1E6] shadow-sm">
-                          <p className="text-[10px] font-bold text-[#0052CC] tracking-wider uppercase flex items-center gap-1.5 border-b border-[#DFE1E6] pb-1.5">
-                            <Sparkles className="w-3 h-3 text-[#0052CC] shrink-0" />
-                            Proposed Time Logs ({msg.proposedLogs.length})
-                          </p>
-                          <div className="space-y-3">
-                            {msg.proposedLogs.map((log: any, idx: number) => {
-                              const confidenceColors = 
-                                log.confidence === "high" ? "bg-[#E3FCEF] text-[#006644] border-[#ABF5D1]" :
-                                log.confidence === "medium" ? "bg-[#FFF0B3] text-[#172B4D] border-[#FFE380]" :
-                                "bg-[#EBECF0] text-[#5E6C84] border-[#DFE1E6]";
-
-                              return (
-                                <div key={idx} className="bg-[#FAFBFC] p-3 rounded border border-[#DFE1E6] space-y-2 text-[11px] hover:border-[#0052CC]/50 transition">
-                                  <div className="flex justify-between items-start gap-1">
-                                    <div className="max-w-[70%] text-left">
-                                      <span className="font-bold text-[#172B4D] font-mono shrink-0 select-text block">{log.issueKey}</span>
-                                      <span className="text-[#5E6C84] block truncate font-sans text-[10px] mt-0.5 font-semibold" title={log.issueSummary}>{log.issueSummary}</span>
-                                    </div>
-                                    <span className={`px-1.5 py-0.5 rounded border text-[8.5px] font-bold font-mono uppercase ${confidenceColors}`}>
-                                      {log.confidence} Match
-                                    </span>
-                                  </div>
-
-                                  <div className="flex items-center gap-2 pt-1 border-t border-[#DFE1E6] text-[10px]">
-                                    <span className="text-[9px] text-[#5E6C84] uppercase font-bold shrink-0">Duration:</span>
-                                    <span className="text-[#0052CC] font-bold font-mono bg-[#DEEBFF] px-1.5 py-0.5 rounded border border-[#B3D4FF]">{log.timeSpent}</span>
-                                  </div>
-
-                                  <div className="bg-white p-2 rounded text-[10.5px] text-[#42526E] italic border border-[#DFE1E6] leading-snug font-medium text-left">
-                                    "{log.comment}"
-                                  </div>
-
-                                  <div className="flex justify-end pt-1">
-                                    {log.success ? (
-                                      <span className="text-emerald-600 text-[10px] font-bold uppercase flex items-center gap-1">
-                                        ✓ Successfully Logged
-                                      </span>
-                                    ) : log.error ? (
-                                      <div className="text-left w-full space-y-1">
-                                        <span className="text-rose-600 text-[9px] block">Error: {log.error}</span>
-                                        <button
-                                          onClick={() => handleLogTimeFromAi(msg.id, idx, log.issueKey, log.timeSpent, log.comment)}
-                                          className="px-2.5 py-1 bg-[#DEEBFF] hover:bg-[#B3D4FF] text-[#0052CC] font-bold rounded text-[10px] uppercase cursor-pointer"
-                                        >
-                                          Retry
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <button
-                                        onClick={() => handleLogTimeFromAi(msg.id, idx, log.issueKey, log.timeSpent, log.comment)}
-                                        disabled={log.isLogging}
-                                        className="px-2.5 py-1.5 bg-[#0052CC] hover:bg-[#0747A6] text-white font-bold rounded text-[10px] uppercase tracking-wide disabled:opacity-40 cursor-pointer flex items-center gap-1"
-                                      >
-                                        {log.isLogging ? "Logging..." : "Confirm & Log"}
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
+              {/* Chat Messages List / Sessions History Panel */}
+              {isHistoryOpen ? (
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#FAFBFC] flex flex-col">
+                  <div className="flex items-center justify-between mb-2 shrink-0">
+                    <span className="text-[10px] font-bold text-[#5E6C84] uppercase tracking-wider">Chat Sessions</span>
+                    <button
+                      type="button"
+                      onClick={handleCreateNewSession}
+                      className="flex items-center gap-1 text-[11px] text-white bg-[#0052CC] hover:bg-[#0747A6] font-bold px-2.5 py-1.5 rounded transition cursor-pointer shadow-xs animate-fade-in"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      New Chat
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
+                    {sessions.map(sess => (
+                      <div
+                        key={sess.id}
+                        onClick={() => handleSwitchSession(sess.id)}
+                        className={`group p-3 rounded-lg border text-left cursor-pointer transition flex items-center justify-between ${
+                          sess.id === currentSessionId
+                            ? "bg-[#EAE6FF] border-[#C0B6F2] text-[#403294]"
+                            : "bg-white border-[#DFE1E6] hover:bg-[#FAFBFC] text-[#091E42]"
+                        }`}
+                      >
+                        <div className="flex flex-col min-w-0 pr-2">
+                          <span className="text-xs font-bold truncate">
+                            {sess.name || "New Session"}
+                          </span>
+                          <span className="text-[9px] text-[#5E6C84] mt-0.5 font-medium">
+                            {new Date(sess.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </span>
                         </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-
-                {aiIsLoading && (
-                  <div className="flex flex-col space-y-1.5 items-start">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-[#5E6C84] pl-1">AI Agent</span>
-                    <div className="bg-[#FAFBFC] border border-[#DFE1E6] p-3.5 rounded-2xl rounded-tl-none md:max-w-[85%] text-xs text-[#5E6C84] flex items-center space-x-2 animate-pulse">
-                      <div className="flex space-x-1">
-                        <div className="w-1.5 h-1.5 bg-[#0052CC] rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                        <div className="w-1.5 h-1.5 bg-[#0052CC] rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                        <div className="w-1.5 h-1.5 bg-[#0052CC] rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteSession(sess.id, e)}
+                          className="p-1 text-[#5E6C84] hover:text-[#DE350B] hover:bg-[#FFEBE6] rounded opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                          title="Delete Session"
+                        >
+                          <Plus className="w-3.5 h-3.5 rotate-45" />
+                        </button>
                       </div>
-                      <span className="font-mono text-[10.5px] font-semibold text-[#172B4D]">Analyzing comments & worklogs...</span>
-                    </div>
+                    ))}
                   </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white">
+                  {aiMessages.map((msg, index) => (
+                    <div key={msg.id} className={`flex flex-col space-y-1.5 ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                      {/* Role header label */}
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-[#5E6C84] pl-1">
+                        {msg.role === "user" ? "You" : "AI Agent"}
+                      </span>
+
+                      {/* Bubble content */}
+                      <div className={`p-3.5 rounded-2xl max-w-[92%] text-xs leading-relaxed shadow-3xs ${
+                        msg.role === "user" 
+                          ? "bg-[#E3F2FD] border border-[#90CAF9] text-[#0D47A1] rounded-tr-none font-semibold" 
+                          : msg.isError
+                            ? "bg-[#FFECEC] border border-[#FFBDAD] text-[#BF2600] rounded-tl-none font-semibold font-mono"
+                            : "bg-[#FAFBFC] border border-[#DFE1E6] text-[#172B4D] rounded-tl-none font-medium"
+                      }`}>
+                        <div className="prose prose-sm prose-slate max-w-none prose-p:leading-relaxed prose-pre:bg-slate-100 prose-pre:text-slate-800">
+                          <ReactMarkdown 
+                            components={{
+                              p: ({node, className, ...props}) => <p className="whitespace-pre-wrap select-text mb-2 last:mb-0" {...props} />,
+                              a: ({node, className, ...props}) => <a className="text-[#0052CC] hover:underline font-semibold" target="_blank" rel="noopener noreferrer" {...props} />,
+                              strong: ({node, className, ...props}) => <strong className="font-bold text-[#172B4D]" {...props} />,
+                              ul: ({node, className, ...props}) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />,
+                              li: ({node, className, ...props}) => <li className="" {...props} />,
+                              code: ({node, className, ...props}) => <code className={className} {...props} />
+                            }}
+                          >
+                            {msg.text}
+                          </ReactMarkdown>
+                        </div>
+
+                        {/* Regenerate button for last agent message */}
+                        {index === aiMessages.length - 1 && msg.role === "agent" && !aiIsLoading && (
+                          <div className="flex justify-end mt-3 pt-2 border-t border-[#DFE1E6]/50">
+                            <button
+                              type="button"
+                              onClick={handleRegenerateResponse}
+                              className="flex items-center gap-1 text-[9px] text-[#0052CC] hover:text-[#0747A6] font-bold px-2 py-1 rounded bg-[#EAE6FF] hover:bg-[#DED9FF] transition cursor-pointer"
+                            >
+                              <RotateCw className="w-2.5 h-2.5" />
+                              Regenerate Response
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Proposed worklogs breakdown card */}
+                        {msg.proposedLogs && msg.proposedLogs.length > 0 && (
+                          <div className="mt-3.5 space-y-3 bg-white p-3 rounded-lg border border-[#DFE1E6] shadow-sm">
+                            <p className="text-[10px] font-bold text-[#0052CC] tracking-wider uppercase flex items-center gap-1.5 border-b border-[#DFE1E6] pb-1.5">
+                              <Sparkles className="w-3 h-3 text-[#0052CC] shrink-0" />
+                              Proposed Time Logs ({msg.proposedLogs.length})
+                            </p>
+                            <div className="space-y-3">
+                              {msg.proposedLogs.map((log: any, idx: number) => {
+                                const confidenceColors = 
+                                  log.confidence === "high" ? "bg-[#E3FCEF] text-[#006644] border-[#ABF5D1]" :
+                                  log.confidence === "medium" ? "bg-[#FFF0B3] text-[#172B4D] border-[#FFE380]" :
+                                  "bg-[#EBECF0] text-[#5E6C84] border-[#DFE1E6]";
+
+                                return (
+                                  <div key={idx} className="bg-[#FAFBFC] p-3 rounded border border-[#DFE1E6] space-y-2 text-[11px] hover:border-[#0052CC]/50 transition">
+                                    <div className="flex justify-between items-start gap-1">
+                                      <div className="max-w-[70%] text-left">
+                                        <span className="font-bold text-[#172B4D] font-mono shrink-0 select-text block">{log.issueKey}</span>
+                                        <span className="text-[#5E6C84] block truncate font-sans text-[10px] mt-0.5 font-semibold" title={log.issueSummary}>{log.issueSummary}</span>
+                                      </div>
+                                      <span className={`px-1.5 py-0.5 rounded border text-[8.5px] font-bold font-mono uppercase ${confidenceColors}`}>
+                                        {log.confidence} Match
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 pt-1 border-t border-[#DFE1E6] text-[10px] flex-wrap">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-[9px] text-[#5E6C84] uppercase font-bold shrink-0">Duration:</span>
+                                        <span className="text-[#0052CC] font-bold font-mono bg-[#DEEBFF] px-1.5 py-0.5 rounded border border-[#B3D4FF]">{log.timeSpent}</span>
+                                      </div>
+                                      {log.started && (
+                                        <div className="flex items-center gap-1.5 ml-2">
+                                          <span className="text-[9px] text-[#5E6C84] uppercase font-bold shrink-0">Date:</span>
+                                          <span className="text-[#006644] font-bold font-sans bg-[#E3FCEF] px-1.5 py-0.5 rounded border border-[#ABF5D1]">
+                                            {new Date(log.started).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div className="bg-white p-2 rounded text-[10.5px] text-[#42526E] italic border border-[#DFE1E6] leading-snug font-medium text-left">
+                                      "{log.comment}"
+                                    </div>
+
+                                    <div className="flex justify-end pt-1">
+                                      {log.success ? (
+                                        <span className="text-emerald-600 text-[10px] font-bold uppercase flex items-center gap-1">
+                                          ✓ Successfully Logged
+                                        </span>
+                                      ) : log.error ? (
+                                        <div className="text-left w-full space-y-1">
+                                          <span className="text-rose-600 text-[9px] block">Error: {log.error}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleLogTimeFromAi(msg.id, idx, log.issueKey, log.timeSpent, log.comment, log.started)}
+                                            className="px-2.5 py-1 bg-[#DEEBFF] hover:bg-[#B3D4FF] text-[#0052CC] font-bold rounded text-[10px] uppercase cursor-pointer"
+                                          >
+                                            Retry
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleLogTimeFromAi(msg.id, idx, log.issueKey, log.timeSpent, log.comment, log.started)}
+                                          disabled={log.isLogging}
+                                          className="px-2.5 py-1.5 bg-[#0052CC] hover:bg-[#0747A6] text-white font-bold rounded text-[10px] uppercase tracking-wide disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                                        >
+                                          {log.isLogging ? "Logging..." : "Confirm & Log"}
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {aiIsLoading && (
+                    <div className="flex flex-col space-y-1.5 items-start">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-[#5E6C84] pl-1">AI Agent</span>
+                      <div className="bg-[#FAFBFC] border border-[#DFE1E6] p-3.5 rounded-2xl rounded-tl-none md:max-w-[85%] text-xs text-[#5E6C84] flex items-center space-x-2 animate-pulse">
+                        <div className="flex space-x-1">
+                          <div className="w-1.5 h-1.5 bg-[#0052CC] rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                          <div className="w-1.5 h-1.5 bg-[#0052CC] rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                          <div className="w-1.5 h-1.5 bg-[#0052CC] rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                        </div>
+                        <span className="font-mono text-[10.5px] font-semibold text-[#172B4D]">Analyzing comments & worklogs...</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Quick Suggestions Shelf */}
-              <div className="px-4 py-2 border-t border-[#DFE1E6] bg-[#FAFBFC] flex gap-1.5 overflow-x-auto scrollbar-none shrink-0">
-                <button
-                  onClick={() => setAiInput("I spent 2h on APP-101 implementing the frontend layout and matching colors")}
-                  className="px-3 py-1.5 bg-white hover:bg-[#FAFBFC] border border-[#DFE1E6] hover:border-[#97A0AF] text-[10px] text-[#42526E] hover:text-[#091E42] font-semibold font-sans rounded-full shrink-0 transition cursor-pointer leading-none shadow-3xs"
-                >
-                  ⚡ Spend 2h on APP-101
-                </button>
-                <button
-                  onClick={() => setAiInput("I worked 4 hours total: 1h on UI design files and 3h on backend database setups")}
-                  className="px-3 py-1.5 bg-white hover:bg-[#FAFBFC] border border-[#DFE1E6] hover:border-[#97A0AF] text-[10px] text-[#42526E] hover:text-[#091E42] font-semibold font-sans rounded-full shrink-0 transition cursor-pointer leading-none shadow-3xs"
-                >
-                  ⚡ Split 4h total
-                </button>
-                <button
-                  onClick={() => setAiInput("Show me what APP-102 is about and summarize its task description")}
-                  className="px-3 py-1.5 bg-white hover:bg-[#FAFBFC] border border-[#DFE1E6] hover:border-[#97A0AF] text-[10px] text-[#42526E] hover:text-[#091E42] font-semibold font-sans rounded-full shrink-0 transition cursor-pointer leading-none shadow-3xs"
-                >
-                  ⚡ Analyze APP-102 task
-                </button>
-              </div>
+              {!isHistoryOpen && (
+                <div className="px-4 py-2 border-t border-[#DFE1E6] bg-[#FAFBFC] flex gap-1.5 overflow-x-auto scrollbar-none shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setAiInput("Log 45m to PR-752 for daily standup updates")}
+                    className="px-3 py-1.5 bg-white hover:bg-[#FAFBFC] border border-[#DFE1E6] hover:border-[#97A0AF] text-[10px] text-[#42526E] hover:text-[#091E42] font-semibold font-sans rounded-full shrink-0 transition cursor-pointer leading-none shadow-3xs"
+                  >
+                    ⚡ Log 45m standup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAiInput("I spent 1.5h on my last task continuing the frontend work")}
+                    className="px-3 py-1.5 bg-white hover:bg-[#FAFBFC] border border-[#DFE1E6] hover:border-[#97A0AF] text-[10px] text-[#42526E] hover:text-[#091E42] font-semibold font-sans rounded-full shrink-0 transition cursor-pointer leading-none shadow-3xs"
+                  >
+                    ⚡ Log 1.5h on last task
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAiInput("Can you find the latest Epic assigned to me?")}
+                    className="px-3 py-1.5 bg-white hover:bg-[#FAFBFC] border border-[#DFE1E6] hover:border-[#97A0AF] text-[10px] text-[#42526E] hover:text-[#091E42] font-semibold font-sans rounded-full shrink-0 transition cursor-pointer leading-none shadow-3xs"
+                  >
+                    ⚡ Find my Epic
+                  </button>
+                </div>
+              )}
 
               {/* Input Form Footer */}
-              <div className="p-4 bg-[#FAFBFC] border-t border-[#DFE1E6] shrink-0">
-                <form onSubmit={handleQueryAiAgent} className="flex gap-2 relative">
-                  <input
-                    type="text"
-                    value={aiInput}
-                    onChange={(e) => setAiInput(e.target.value)}
-                    placeholder="E.g. log 3h fixing UI component layout..."
-                    disabled={aiIsLoading}
-                    className="flex-1 bg-white border border-[#DFE1E6] focus:border-[#0052CC] rounded px-4 py-2 text-xs text-[#091E42] outline-none placeholder-slate-400 font-sans font-medium"
-                  />
-                  <button
-                    type="submit"
-                    disabled={aiIsLoading || !aiInput.trim()}
-                    className="w-9 h-9 bg-[#0052CC] hover:bg-[#0747A6] text-white font-bold rounded flex items-center justify-center shrink-0 transition disabled:opacity-35 cursor-pointer"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </form>
-                <p className="text-[8.5px] text-[#5E6C84] text-center mt-2.5 font-sans font-bold uppercase tracking-wider">
-                  Powered by Google Gemini 1.5 Pro
-                </p>
-              </div>
+              {!isHistoryOpen && (
+                <div className="p-4 bg-[#FAFBFC] border-t border-[#DFE1E6] shrink-0">
+                  <form onSubmit={handleQueryAiAgent} className="flex gap-2 relative">
+                    <input
+                      type="text"
+                      value={aiInput}
+                      onChange={(e) => setAiInput(e.target.value)}
+                      placeholder="E.g. log 3h fixing UI component layout..."
+                      disabled={aiIsLoading}
+                      className="flex-1 bg-white border border-[#DFE1E6] focus:border-[#0052CC] rounded px-4 py-2 text-xs text-[#091E42] outline-none placeholder-slate-400 font-sans font-medium"
+                    />
+                    <button
+                      type="submit"
+                      disabled={aiIsLoading || !aiInput.trim()}
+                      className="w-9 h-9 bg-[#0052CC] hover:bg-[#0747A6] text-white font-bold rounded flex items-center justify-center shrink-0 transition disabled:opacity-35 cursor-pointer"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </form>
+                  <p className="text-[8.5px] text-[#5E6C84] text-center mt-2.5 font-sans font-bold uppercase tracking-wider">
+                    Powered by Gemini - AI can make mistakes, double check before proceeding.
+                  </p>
+                </div>
+              )}
             </motion.div>
           </div>
         )}

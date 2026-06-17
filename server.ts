@@ -8,6 +8,19 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
+import jwt from "jsonwebtoken";
+import { 
+  createUser, 
+  getUserByEmail, 
+  getUserById, 
+  getProfilesForUser, 
+  saveProfileForUser, 
+  deleteProfileForUser, 
+  getSessionsForUser, 
+  saveSessionForUser, 
+  deleteSessionForUser,
+  hashPassword
+} from "./serverDb";
 
 // Load environment variables
 dotenv.config();
@@ -15,8 +28,144 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
+const JWT_SECRET = process.env.JWT_SECRET || "default-super-secret-key-123456";
+
+// Extend Express Request type to include userId and userEmail
+declare global {
+  namespace Express {
+    interface Request {
+      userId?: string;
+      userEmail?: string;
+    }
+  }
+}
+
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "No authentication token provided" });
+  }
+  const token = authHeader.split(" ")[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    req.userId = decoded.userId;
+    req.userEmail = decoded.email;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+}
+
 // Enable JSON body parsing with higher limit for bulk operations
 app.use(express.json({ limit: "10mb" }));
+
+// Auth Register Route
+app.post("/api/auth/register", async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password are required" });
+  }
+  try {
+    const user = createUser(email, password);
+    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: "7d" });
+    res.status(201).json({ token, user: { id: user.id, email: user.email } });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Failed to register user" });
+  }
+});
+
+// Auth Login Route
+app.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password are required" });
+  }
+  try {
+    const user = getUserByEmail(email);
+    if (!user) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    const hash = hashPassword(password, user.salt);
+    if (hash !== user.passwordHash) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: "7d" });
+    res.json({ token, user: { id: user.id, email: user.email } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Login failed" });
+  }
+});
+
+// Get Current User details
+app.get("/api/auth/me", requireAuth, async (req, res) => {
+  try {
+    const user = getUserById(req.userId!);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    res.json({ id: user.id, email: user.email });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Connection Profiles API
+app.get("/api/user/profiles", requireAuth, (req, res) => {
+  try {
+    const profiles = getProfilesForUser(req.userId!);
+    res.json(profiles);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/user/profiles", requireAuth, (req, res) => {
+  try {
+    const profile = req.body;
+    const saved = saveProfileForUser(req.userId!, profile);
+    res.json(saved);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/user/profiles/:id", requireAuth, (req, res) => {
+  try {
+    deleteProfileForUser(req.userId!, req.params.id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Chat Sessions API
+app.get("/api/user/sessions", requireAuth, (req, res) => {
+  try {
+    const sessions = getSessionsForUser(req.userId!);
+    res.json(sessions);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/user/sessions", requireAuth, (req, res) => {
+  try {
+    const session = req.body;
+    const saved = saveSessionForUser(req.userId!, session);
+    res.json(saved);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/user/sessions/:id", requireAuth, (req, res) => {
+  try {
+    deleteSessionForUser(req.userId!, req.params.id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Helper to determine redirect URI for Atlassian OAuth
 function getRedirectUri(req: express.Request): string {
@@ -34,7 +183,7 @@ function getRedirectUri(req: express.Request): string {
 }
 
 // 1. Get Atlassian OAuth Authorization URL
-app.get("/api/auth/url", (req, res) => {
+app.get("/api/auth/url", requireAuth, (req, res) => {
   const clientId = process.env.JIRA_CLIENT_ID;
   if (!clientId) {
     return res.status(400).json({ 
@@ -187,7 +336,7 @@ app.all(["/auth/callback", "/auth/callback/"], async (req, res) => {
 });
 
 // 3. Refresh OAuth token endpoint
-app.post("/api/auth/refresh", async (req, res) => {
+app.post("/api/auth/refresh", requireAuth, async (req, res) => {
   const { refresh_token } = req.body;
   if (!refresh_token) {
     return res.status(400).json({ error: "refresh_token is required" });
@@ -227,16 +376,16 @@ app.post("/api/auth/refresh", async (req, res) => {
 });
 
 // 4. Accessible Resources (Jira Sites) List for OAuth 2.0
-app.get("/api/jira/oauth/sites", async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: "Missing Authorization header" });
+app.get("/api/jira/oauth/sites", requireAuth, async (req, res) => {
+  const atlassianToken = req.headers["x-atlassian-access-token"] as string;
+  if (!atlassianToken) {
+    return res.status(400).json({ error: "Missing x-atlassian-access-token header" });
   }
 
   try {
     const response = await fetch("https://api.atlassian.com/oauth/token/accessible-resources", {
       headers: {
-        Authorization: authHeader,
+        Authorization: `Bearer ${atlassianToken}`,
         Accept: "application/json"
       }
     });
@@ -253,16 +402,11 @@ app.get("/api/jira/oauth/sites", async (req, res) => {
   }
 });
 
-// 5. General Jira Proxy Route to deal with CORS and authentication
-app.post("/api/jira/proxy", async (req, res) => {
-  const authType = req.headers["x-jira-auth-type"] as string; // 'oauth' or 'basic'
-  const endpoint = req.body.endpoint as string; // e.g. 'search', 'project', etc.
-  const method = req.body.method as string || "GET";
-  const bodyPayload = req.body.body; // post data if any
-
-  if (!endpoint) {
-    return res.status(400).json({ error: "endpoint is required" });
-  }
+// Helper to make internal Jira requests
+async function makeInternalJiraRequest(endpoint: string, method: string, bodyPayload: any, query: any, authConfig: any) {
+  const { authType, cloudId, accessToken, domain, email, apiToken } = authConfig;
+  
+  if (!endpoint) throw new Error("endpoint is required");
 
   let targetUrl = "";
   let authorizationHeader = "";
@@ -270,95 +414,85 @@ app.post("/api/jira/proxy", async (req, res) => {
   const isWiki = endpoint.startsWith("wiki/");
 
   if (authType === "oauth") {
-    const cloudId = req.headers["x-jira-cloud-id"] as string;
-    const accessToken = req.headers["x-jira-access-token"] as string;
-
-    if (!cloudId || !accessToken) {
-      return res.status(400).json({ error: "OAuth require x-jira-cloud-id and x-jira-access-token headers" });
-    }
-
-    if (isWiki) {
-      targetUrl = `https://api.atlassian.com/ex/jira/${cloudId}/${endpoint}`;
-    } else {
-      targetUrl = `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/${endpoint}`;
-    }
+    if (!cloudId || !accessToken) throw new Error("OAuth require cloudId and accessToken");
+    targetUrl = isWiki ? `https://api.atlassian.com/ex/jira/${cloudId}/${endpoint}` : `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/${endpoint}`;
     authorizationHeader = `Bearer ${accessToken}`;
   } else if (authType === "basic") {
-    const domain = req.headers["x-jira-domain"] as string;
-    const email = req.headers["x-jira-email"] as string;
-    const apiToken = req.headers["x-jira-api-token"] as string;
-
-    if (!domain || !email || !apiToken) {
-      return res.status(400).json({ error: "Basic Authentication requires domain, email, and api-token headers" });
-    }
-
-    // Clean domain
+    if (!domain || !email || !apiToken) throw new Error("Basic Authentication requires domain, email, and apiToken");
     const cleanDomain = domain.replace(/^https?:\/\//i, "").replace(/\/$/, "");
-    if (isWiki) {
-      targetUrl = `https://${cleanDomain}/${endpoint}`;
-    } else {
-      targetUrl = `https://${cleanDomain}/rest/api/3/${endpoint}`;
-    }
+    targetUrl = isWiki ? `https://${cleanDomain}/${endpoint}` : `https://${cleanDomain}/rest/api/3/${endpoint}`;
     authorizationHeader = `Basic ${Buffer.from(`${email}:${apiToken}`).toString("base64")}`;
+  } else if (authType === "demo") {
+    throw new Error("Demo mode does not support live Jira API calls");
   } else {
-    return res.status(400).json({ error: "Invalid or missing x-jira-auth-type header" });
+    throw new Error("Invalid or missing authType");
   }
 
-  // Add query parameters from request onto target URL
-  if (req.body.query && Object.keys(req.body.query).length > 0) {
+  if (query && Object.keys(query).length > 0) {
     const queryParams = new URLSearchParams();
-    for (const [key, value] of Object.entries(req.body.query)) {
-      if (value !== undefined && value !== null) {
-        queryParams.append(key, String(value));
-      }
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== null) queryParams.append(key, String(value));
     }
-    const separator = targetUrl.includes("?") ? "&" : "?";
-    targetUrl = `${targetUrl}${separator}${queryParams.toString()}`;
+    targetUrl = `${targetUrl}${targetUrl.includes("?") ? "&" : "?"}${queryParams.toString()}`;
   }
+
+  const requestOptions: RequestInit = {
+    method: method,
+    headers: {
+      Authorization: authorizationHeader,
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    }
+  };
+
+  if (method !== "GET" && bodyPayload) {
+    requestOptions.body = JSON.stringify(bodyPayload);
+  }
+
+  const response = await fetch(targetUrl, requestOptions);
+  const contentType = response.headers.get("content-type") || "";
+  let responseData;
+  if (contentType.includes("application/json")) {
+    responseData = await response.json();
+  } else {
+    responseData = { text: await response.text() };
+  }
+  
+  return { status: response.status, data: responseData };
+}
+
+// 5. General Jira Proxy Route to deal with CORS and authentication
+app.post("/api/jira/proxy", requireAuth, async (req, res) => {
+  const authConfig = {
+    authType: req.headers["x-jira-auth-type"] as string,
+    cloudId: req.headers["x-jira-cloud-id"] as string,
+    accessToken: req.headers["x-jira-access-token"] as string,
+    domain: req.headers["x-jira-domain"] as string,
+    email: req.headers["x-jira-email"] as string,
+    apiToken: req.headers["x-jira-api-token"] as string,
+  };
 
   try {
-    const requestOptions: RequestInit = {
-      method: method,
-      headers: {
-        Authorization: authorizationHeader,
-        Accept: "application/json",
-        "Content-Type": "application/json"
-      }
-    };
-
-    if (method !== "GET" && bodyPayload) {
-      requestOptions.body = JSON.stringify(bodyPayload);
-    }
-
-    const response = await fetch(targetUrl, requestOptions);
-    const contentType = response.headers.get("content-type") || "";
-    
-    let responseData;
-    if (contentType.includes("application/json")) {
-      responseData = await response.json();
-    } else {
-      responseData = { text: await response.text() };
-    }
-
-    res.status(response.status).json(responseData);
+    const result = await makeInternalJiraRequest(req.body.endpoint, req.body.method || "GET", req.body.body, req.body.query, authConfig);
+    res.status(result.status).json(result.data);
   } catch (error: any) {
-    console.error(`Jira Proxy Error for ${method} to ${targetUrl}:`, error);
+    console.error(`Jira Proxy Error:`, error);
     res.status(500).json({ error: error.message || "Proxy connection to Jira failed" });
   }
 });
 
 // AI Agent Endpoint
-app.post("/api/gemini/agent", async (req, res) => {
-  const { prompt, issues } = req.body;
+app.post("/api/gemini/agent", requireAuth, async (req, res) => {
+  const { prompt, issues, apiKey: clientApiKey, recentWorklogs, authConfig, userProfile } = req.body;
   if (!prompt) {
     return res.status(400).json({ error: "prompt is required" });
   }
 
-  // Use server-side Gemini key
-  const apiKey = process.env.GEMINI_API_KEY;
+  // Use client-side Gemini key if provided, else server-side
+  const apiKey = clientApiKey || process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return res.status(400).json({
-      error: "Gemini API Key is not configured on the server. Please define GEMINI_API_KEY in your Settings > Secrets panel."
+      error: "Gemini API Key is missing. Please configure it in your User Profile or define GEMINI_API_KEY on the server."
     });
   }
 
@@ -410,25 +544,31 @@ app.post("/api/gemini/agent", async (req, res) => {
       };
     });
 
-    const response = await ai.models.generateContent({
+    const systemInstruction = "You are Jira-Intelligence, a friendly, conversational, and highly capable AI Assistant for Atlassian Jira, specialized in time-tracking and workflow logging. " +
+      "Your primary role is to act as a natural conversational partner. When users greet you, ask general questions, or chat, respond warmly and naturally as an AI assistant. " +
+      "When users ask you to log time or show what was logged, parse their intent into structured Jira time logs in the `proposedLogs` array, and write a natural explanation. " +
+      "Follow these guidelines:\n" +
+      "1. Match issues carefully. Call the `searchJiraIssues` tool with JQL if you need to dynamically find issues.\n" +
+      "2. Only reference work logs that correspond to the 'Current User' defined in the context. Do not confuse work logs written by other users as work logged by the current user.\n" +
+      "3. Contextual understanding: If the user says 'last task', refer to the 'User's Recent Worklogs' array (which are pre-filtered to the current user) to identify which issue they most recently logged time against.\n" +
+      "4. Duration must be formatted as normal Jira time tracking patterns.\n" +
+      "5. Date extraction: Determine absolute Date based on today's context. Provide 'started' field in ISO 8601 format, but always set the time to 12:00:00.000+0000 (e.g. `YYYY-MM-DDT12:00:00.000+0000`) as the exact time of day is not required in Jira.\n" +
+      "6. Status confidence: Use 'high' confidence when an issue key matches perfectly, 'medium' for semantic matches, and 'low' for fallbacks.\n" +
+      "7. References: At the end of every response, you MUST append a '### References' section. List the JQL queries executed, issue keys analyzed, or user worklogs read, showing dates and authors, so the user knows exactly what source data was queried.\n" +
+      "8. Spelling Correction: Scan the user's comments for spelling mistakes (e.g., 'Discoussin' -> 'Discussion', 'yestedays' -> 'yesterday'). In the prepared log comment, use the corrected spelling. Highlight this correction to the user in your explanation.\n" +
+      "9. Smart Clarification Questionnaire: If there is ambiguity (e.g. multiple matching issues, unclear duration, or when guessing the task using a 'medium' or 'low' confidence match), do NOT immediately propose logs (leave `proposedLogs` empty). Instead, present a friendly set of clarification questions or choices in your explanation. Once the user clarifies, proceed to propose the logs.";
+
+    const chat = ai.chats.create({
       model: "gemini-3.5-flash",
-      contents: `User time-tracking prompt: "${prompt}"\n\nAvailable Jira Issues/Subtasks in project:\n${JSON.stringify(issuesContext, null, 2)}`,
       config: {
-        systemInstruction: "You are Jira-Intelligence, a premium AI Assistant for Atlassian Jira specialized in time-tracking and workflow logging. " +
-          "Your task is to parse user worklogs, progress updates, or work summaries and translate them into structured Jira time logs. " +
-          "Follow these critical guidelines:\n" +
-          "1. Match issues/subtasks carefully. If prompt mentions a code or issue key (such as 'pr-698' or '698'), look for an issue key (e.g. PR-698, PRODUCT-698) or summary that matches this pattern exactly or partially. DO NOT match to a generic issue (like MAR-50) if a better key match or ID match exists. Give maximum priority to any alphanumeric codes (e.g. 'pr-698') match against keys (e.g. key: 'PR-698') or summaries.\n" +
-          "2. If the user mentions 'the same description as last log' or 'same description' or 'last log' for an issue, check the 'lastWorklogComment' of that matched issue. If it contains a comment, use that EXACT comment string verbatim as the proposed log's comment. If 'lastWorklogComment' is empty/not present, fallback to writing a complete, professional, human description of what they did.\n" +
-          "3. Highlight which issues you matched and give an explanation of your matching process.\n" +
-          "4. Duration must be formatted as normal Jira time tracking patterns (e.g., '1h 30m', '4h', '30m', '1d').\n" +
-          "5. Status confidence: Use 'high' confidence when an issue key or ID matches perfectly, 'medium' for semantic title matches, and 'low' for fallbacks.",
+        systemInstruction,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
             explanation: {
               type: Type.STRING,
-              description: "A summary explanation of what you processed, matched, and resolved from the user's prompt."
+              description: "A natural, friendly, conversational reply to the user. E.g., 'Hi! How can I help you today?' or 'I have prepared your 2h log for PR-698. Let me know if you want to proceed!'"
             },
             proposedLogs: {
               type: Type.ARRAY,
@@ -451,19 +591,66 @@ app.post("/api/gemini/agent", async (req, res) => {
                     type: Type.STRING,
                     description: "Jira worklog comment explaining the work done."
                   },
+                  started: {
+                    type: Type.STRING,
+                    description: "The absolute date and time the work was started, based on the user's prompt. Must be ISO 8601 format like YYYY-MM-DDThh:mm:ss.000+0000. If unspecified, use current date/time."
+                  },
                   confidence: {
                     type: Type.STRING,
                     description: "Confidence status of issue matching: 'high', 'medium', or 'low'."
                   }
                 },
-                required: ["issueKey", "issueSummary", "timeSpent", "comment", "confidence"]
+                required: ["issueKey", "issueSummary", "timeSpent", "comment", "started", "confidence"]
               }
             }
           },
           required: ["explanation", "proposedLogs"]
-        }
+        },
+        tools: [{
+          functionDeclarations: [{
+            name: "searchJiraIssues",
+            description: "Execute a Jira JQL search to find issues dynamically. E.g., `assignee = currentUser() AND issuetype = Epic`. Use this when you need to find issues that the user is talking about.",
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                jql: { type: Type.STRING, description: "The JQL query string." }
+              },
+              required: ["jql"]
+            }
+          }]
+        }]
       }
     });
+
+    let messageContents = `Current User: ${userProfile ? JSON.stringify(userProfile) : "Unknown User"}\n\nUser time-tracking prompt: "${prompt}"\n\nUser's Recent Worklogs across all issues:\n${JSON.stringify(recentWorklogs || [], null, 2)}\n\nAvailable Jira Issues/Subtasks in project:\n${JSON.stringify(issuesContext, null, 2)}`;
+    
+    let response = await chat.sendMessage({ message: messageContents });
+
+    // Process function calls if the AI decides it needs to search
+    while (response.functionCalls && response.functionCalls.length > 0) {
+      const call = response.functionCalls[0];
+      if (call.name === "searchJiraIssues" && authConfig && authConfig.authType !== "demo") {
+        const jql = (call.args as any).jql;
+        console.log("AI Agent executing JQL Search:", jql);
+        try {
+          const searchRes = await makeInternalJiraRequest("search", "GET", null, { jql, maxResults: 15, fields: "summary,description,status,issuetype" }, authConfig);
+          // Send result back to AI
+          response = await chat.sendMessage({ message: [{
+            functionResponse: { name: call.name, response: searchRes.data }
+          }] });
+        } catch (e: any) {
+          console.error("Function Call Error:", e.message);
+          response = await chat.sendMessage({ message: [{
+            functionResponse: { name: call.name, response: { error: e.message } }
+          }] });
+        }
+      } else {
+        // If authConfig is missing or demo, tell AI it can't search
+        response = await chat.sendMessage({ message: [{
+          functionResponse: { name: call.name, response: { error: "Cannot search Jira because auth credentials were not provided or in demo mode." } }
+        }] });
+      }
+    }
 
     const dataText = response.text;
     if (!dataText) {
