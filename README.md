@@ -60,9 +60,3 @@ A collaborative board optimizer, documentation browser, and intelligent time-tra
 
 5.  **Access the Application**:
     Open your browser and navigate to [http://localhost:3000](http://localhost:3000).
-
----
-
-## Contributors
-
-*   **Aqib Arshad** ([@arozimran1-dotcom](https://github.com/arozimran1-dotcom)) - Core Contributor & Lead Creator
