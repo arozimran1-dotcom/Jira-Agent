@@ -476,19 +476,29 @@ export default function App() {
   useEffect(() => {
     const activePrf = profiles.find(p => p.id === activeProfileId) || profiles[0];
     if (activePrf) {
-      setAuthType(activePrf.authType);
-      setOauthTokens(activePrf.oauthTokens || null);
-      setSelectedSite(activePrf.selectedSite || null);
-      setDirectConn(activePrf.directConn || null);
-      setGeminiApiKey(activePrf.geminiApiKey || null);
+      if (authType !== activePrf.authType) {
+        setAuthType(activePrf.authType);
+      }
+      if (JSON.stringify(oauthTokens) !== JSON.stringify(activePrf.oauthTokens)) {
+        setOauthTokens(activePrf.oauthTokens || null);
+      }
+      if (JSON.stringify(selectedSite) !== JSON.stringify(activePrf.selectedSite)) {
+        setSelectedSite(activePrf.selectedSite || null);
+      }
+      if (JSON.stringify(directConn) !== JSON.stringify(activePrf.directConn)) {
+        setDirectConn(activePrf.directConn || null);
+      }
+      if (geminiApiKey !== activePrf.geminiApiKey) {
+        setGeminiApiKey(activePrf.geminiApiKey || null);
+      }
     } else {
-      setAuthType("demo");
-      setOauthTokens(null);
-      setSelectedSite(null);
-      setDirectConn(null);
-      setGeminiApiKey(null);
+      if (authType !== "demo") setAuthType("demo");
+      if (oauthTokens !== null) setOauthTokens(null);
+      if (selectedSite !== null) setSelectedSite(null);
+      if (directConn !== null) setDirectConn(null);
+      if (geminiApiKey !== null) setGeminiApiKey(null);
     }
-  }, [activeProfileId, profiles]);
+  }, [activeProfileId, profiles, authType, oauthTokens, selectedSite, directConn, geminiApiKey]);
 
   // Chat history lifecycle handlers
   const handleCreateNewSession = async () => {
@@ -1020,11 +1030,24 @@ export default function App() {
     }, 1000);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [authType, directConn, oauthTokens, selectedSite, geminiApiKey, activeProfileId]);
+  }, [authType, directConn, oauthTokens, selectedSite, geminiApiKey, activeProfileId, profiles]);
 
   // Sync active profile connection settings dynamically in memory
   useEffect(() => {
     if (profiles.length === 0 || !activeProfileId) return;
+    
+    const activePrf = profiles.find(p => p.id === activeProfileId);
+    if (!activePrf) return;
+
+    const hasChanges = 
+      authType !== activePrf.authType ||
+      JSON.stringify(directConn) !== JSON.stringify(activePrf.directConn) ||
+      JSON.stringify(oauthTokens) !== JSON.stringify(activePrf.oauthTokens) ||
+      JSON.stringify(selectedSite) !== JSON.stringify(activePrf.selectedSite) ||
+      geminiApiKey !== activePrf.geminiApiKey;
+
+    if (!hasChanges) return;
+
     setProfiles(prev => prev.map(p => {
       if (p.id === activeProfileId) {
         return {
@@ -1038,7 +1061,7 @@ export default function App() {
       }
       return p;
     }));
-  }, [authType, directConn, oauthTokens, selectedSite, geminiApiKey, activeProfileId]);
+  }, [authType, directConn, oauthTokens, selectedSite, geminiApiKey, activeProfileId, profiles]);
 
   // Sync chat sessions updates to server with a 1s debounce
   useEffect(() => {
