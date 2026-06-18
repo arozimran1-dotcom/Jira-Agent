@@ -114,6 +114,7 @@ export async function saveProfileForUser(userId: string, profile: any): Promise<
   // Remove convex internal fields if they exist
   delete profileToSave._id;
   delete profileToSave._creationTime;
+  delete profileToSave.userId;
   
   // Ensure default structure doesn't break schema expectations
   if (profileToSave.directConn === undefined) {
@@ -171,6 +172,7 @@ export async function saveSessionForUser(userId: string, session: any): Promise<
   // Remove convex internal fields if they exist
   delete sessionToSave._id;
   delete sessionToSave._creationTime;
+  delete sessionToSave.userId;
   
   if (!sessionToSave.createdAt) {
     sessionToSave.createdAt = Date.now();
