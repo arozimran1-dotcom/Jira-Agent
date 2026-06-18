@@ -156,7 +156,7 @@ export default function App() {
   // Basic Auth Connection Inputs pre-filled with user configuration
   const [inputDomain, setInputDomain] = useState("joblogic.atlassian.net");
   const [inputEmail, setInputEmail] = useState("arozi@joblogic.com");
-  const [inputToken, setInputToken] = useState("ATATT3xFfGF0HBBODDhtDu_MbDQ5KBCgebWZkcMKpPsisCmTS0VxtH75BOKlQXOZ3DOGOc6sTfrmqu0ALc-STybZqMSxNo6aXi673n4jeiMGd3n-j8Nwy_he8_GqfKl5Ff6OodrCN8LIFB03ToqTtdpnZVewQTpJPoe3xjCVP8bLYqMYCQlNnXw=EE96D05E");
+  const [inputToken, setInputToken] = useState("");
 
   // System general state
   const [projects, setProjects] = useState<JiraProject[]>([]);
@@ -266,7 +266,7 @@ export default function App() {
           directConn: {
             domain: "joblogic.atlassian.net",
             email: "arozi@joblogic.com",
-            apiToken: "ATATT3xFfGF0HBBODDhtDu_MbDQ5KBCgebWZkcMKpPsisCmTS0VxtH75BOKlQXOZ3DOGOc6sTfrmqu0ALc-STybZqMSxNo6aXi673n4jeiMGd3n-j8Nwy_he8_GqfKl5Ff6OodrCN8LIFB03ToqTtdpnZVewQTpJPoe3xjCVP8bLYqMYCQlNnXw=EE96D05E"
+            apiToken: ""
           },
           oauthTokens: null,
           selectedSite: null,
@@ -3269,7 +3269,7 @@ export default function App() {
 
                           <div className="flex items-center justify-between border-t border-slate-100 pt-3">
                             <button
-                              onClick={() => handleCopyToClipboard("ATATT3xFfGF0HBBODDhtDu_MbDQ5KBCgebWZkcMKpPsisCmTS0VxtH75BOKlQXOZ3DOGOc6sTfrmqu0ALc-STybZqMSxNo6aXi673n4jeiMGd3n-j8Nwy_he8_GqfKl5Ff6OodrCN8LIFB03ToqTtdpnZVewQTpJPoe3xjCVP8bLYqMYCQlNnXw=EE96D05E", "copied-token")}
+                              onClick={() => handleCopyToClipboard("Please generate your own API token from id.atlassian.com and paste it here.", "copied-token")}
                               className="px-3 py-1.5 bg-[#F4F5F7] hover:bg-[#EAEAEF] text-[11px] font-semibold rounded font-mono border border-[#DFE1E6] text-[#42526E] hover:text-[#091E42] transition cursor-pointer select-none"
                             >
                               {copiedText === "copied-token" ? "✓ Copied Key!" : "Copy Atlassian Token"}
@@ -3690,7 +3690,7 @@ export default function App() {
 
                       <div className="flex items-center justify-between border-t border-slate-100 pt-3">
                         <button
-                          onClick={() => handleCopyToClipboard("ATATT3xFfGF0HBBODDhtDu_MbDQ5KBCgebWZkcMKpPsisCmTS0VxtH75BOKlQXOZ3DOGOc6sTfrmqu0ALc-STybZqMSxNo6aXi673n4jeiMGd3n-j8Nwy_he8_GqfKl5Ff6OodrCN8LIFB03ToqTtdpnZVewQTpJPoe3xjCVP8bLYqMYCQlNnXw=EE96D05E", "copied-token")}
+                          onClick={() => handleCopyToClipboard("Please generate your own API token from id.atlassian.com and paste it here.", "copied-token")}
                           className="px-3 py-1.5 bg-[#F4F5F7] hover:bg-[#EAEAEF] text-[11px] font-semibold rounded font-mono border border-[#DFE1E6] text-[#42526E] hover:text-[#091E42] transition cursor-pointer select-none"
                         >
                           {copiedText === "copied-token" ? "✓ Copied Key!" : "Copy Atlassian Token"}

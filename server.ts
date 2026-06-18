@@ -66,7 +66,7 @@ app.post("/api/auth/register", async (req, res) => {
     return res.status(400).json({ error: "Email and password are required" });
   }
   try {
-    const user = createUser(email, password);
+    const user = await createUser(email, password);
     const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: "7d" });
     res.status(201).json({ token, user: { id: user.id, email: user.email } });
   } catch (err: any) {
@@ -81,7 +81,7 @@ app.post("/api/auth/login", async (req, res) => {
     return res.status(400).json({ error: "Email and password are required" });
   }
   try {
-    const user = getUserByEmail(email);
+    const user = await getUserByEmail(email);
     if (!user) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
@@ -99,7 +99,7 @@ app.post("/api/auth/login", async (req, res) => {
 // Get Current User details
 app.get("/api/auth/me", requireAuth, async (req, res) => {
   try {
-    const user = getUserById(req.userId!);
+    const user = await getUserById(req.userId!);
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
@@ -110,28 +110,28 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
 });
 
 // Connection Profiles API
-app.get("/api/user/profiles", requireAuth, (req, res) => {
+app.get("/api/user/profiles", requireAuth, async (req, res) => {
   try {
-    const profiles = getProfilesForUser(req.userId!);
+    const profiles = await getProfilesForUser(req.userId!);
     res.json(profiles);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post("/api/user/profiles", requireAuth, (req, res) => {
+app.post("/api/user/profiles", requireAuth, async (req, res) => {
   try {
     const profile = req.body;
-    const saved = saveProfileForUser(req.userId!, profile);
+    const saved = await saveProfileForUser(req.userId!, profile);
     res.json(saved);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete("/api/user/profiles/:id", requireAuth, (req, res) => {
+app.delete("/api/user/profiles/:id", requireAuth, async (req, res) => {
   try {
-    deleteProfileForUser(req.userId!, req.params.id);
+    await deleteProfileForUser(req.userId!, req.params.id);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -139,28 +139,28 @@ app.delete("/api/user/profiles/:id", requireAuth, (req, res) => {
 });
 
 // Chat Sessions API
-app.get("/api/user/sessions", requireAuth, (req, res) => {
+app.get("/api/user/sessions", requireAuth, async (req, res) => {
   try {
-    const sessions = getSessionsForUser(req.userId!);
+    const sessions = await getSessionsForUser(req.userId!);
     res.json(sessions);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post("/api/user/sessions", requireAuth, (req, res) => {
+app.post("/api/user/sessions", requireAuth, async (req, res) => {
   try {
     const session = req.body;
-    const saved = saveSessionForUser(req.userId!, session);
+    const saved = await saveSessionForUser(req.userId!, session);
     res.json(saved);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete("/api/user/sessions/:id", requireAuth, (req, res) => {
+app.delete("/api/user/sessions/:id", requireAuth, async (req, res) => {
   try {
-    deleteSessionForUser(req.userId!, req.params.id);
+    await deleteSessionForUser(req.userId!, req.params.id);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

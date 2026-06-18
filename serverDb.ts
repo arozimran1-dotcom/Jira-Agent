@@ -1,57 +1,23 @@
-import * as fs from "fs";
-import * as path from "path";
 import * as crypto from "crypto";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "./convex/_generated/api.js";
+import dotenv from "dotenv";
 
-const DB_FILE = path.join(process.cwd(), "server_db.json");
+// Load environment variables
+dotenv.config();
+
+const CONVEX_URL = process.env.CONVEX_URL;
+if (!CONVEX_URL) {
+  console.warn("WARNING: CONVEX_URL is not defined in the environment. Convex queries will fail.");
+}
+
+const convex = new ConvexHttpClient(CONVEX_URL || "");
 
 export interface User {
   id: string;
   email: string;
   passwordHash: string;
   salt: string;
-}
-
-export interface DbSchema {
-  users: User[];
-  profiles: any[];
-  sessions: any[];
-}
-
-function initDb(): DbSchema {
-  if (!fs.existsSync(DB_FILE)) {
-    const defaultData: DbSchema = {
-      users: [],
-      profiles: [],
-      sessions: []
-    };
-    fs.writeFileSync(DB_FILE, JSON.stringify(defaultData, null, 2), "utf8");
-    return defaultData;
-  }
-  try {
-    const content = fs.readFileSync(DB_FILE, "utf8");
-    return JSON.parse(content);
-  } catch (err) {
-    console.error("Failed to read server DB file, resetting:", err);
-    const defaultData: DbSchema = {
-      users: [],
-      profiles: [],
-      sessions: []
-    };
-    fs.writeFileSync(DB_FILE, JSON.stringify(defaultData, null, 2), "utf8");
-    return defaultData;
-  }
-}
-
-export function getDb(): DbSchema {
-  return initDb();
-}
-
-export function saveDb(db: DbSchema) {
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf8");
-  } catch (err) {
-    console.error("Failed to write server DB:", err);
-  }
 }
 
 // Password hashing helper
@@ -64,105 +30,134 @@ export function generateSalt(): string {
 }
 
 // User methods
-export function getUserByEmail(email: string): User | undefined {
-  const db = getDb();
-  return db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
-}
-
-export function getUserById(id: string): User | undefined {
-  const db = getDb();
-  return db.users.find(u => u.id === id);
-}
-
-export function createUser(email: string, password: string): User {
-  const db = getDb();
-  const emailLower = email.toLowerCase();
-  
-  if (db.users.some(u => u.email.toLowerCase() === emailLower)) {
-    throw new Error("User with this email already exists");
+export async function getUserByEmail(email: string): Promise<any | undefined> {
+  try {
+    const user = await convex.query(api.users.getByEmail, { email }) as any;
+    if (user) {
+      return {
+        id: user._id,
+        email: user.email,
+        passwordHash: user.passwordHash,
+        salt: user.salt
+      };
+    }
+  } catch (err) {
+    console.error("Convex getUserByEmail error:", err);
   }
-  
+  return undefined;
+}
+
+export async function getUserById(id: string): Promise<any | undefined> {
+  try {
+    const user = await convex.query(api.users.getById, { id }) as any;
+    if (user) {
+      return {
+        id: user.id,
+        email: user.email,
+        passwordHash: user.passwordHash,
+        salt: user.salt
+      };
+    }
+  } catch (err) {
+    console.error("Convex getUserById error:", err);
+  }
+  return undefined;
+}
+
+export async function createUser(email: string, password: string): Promise<any> {
+  const emailLower = email.toLowerCase();
   const salt = generateSalt();
   const passwordHash = hashPassword(password, salt);
   
-  const newUser: User = {
-    id: `user-${crypto.randomUUID()}`,
+  const result = await convex.mutation(api.users.create, {
     email: emailLower,
     passwordHash,
     salt
-  };
+  }) as any;
   
-  db.users.push(newUser);
-  saveDb(db);
-  return newUser;
+  return result;
 }
 
 // Connection Profiles methods
-export function getProfilesForUser(userId: string): any[] {
-  const db = getDb();
-  return db.profiles.filter(p => p.userId === userId);
+export async function getProfilesForUser(userId: string): Promise<any[]> {
+  try {
+    return await convex.query(api.profiles.getForUser, { userId }) as any[];
+  } catch (err) {
+    console.error("Convex getProfilesForUser error:", err);
+    return [];
+  }
 }
 
-export function saveProfileForUser(userId: string, profile: any): any {
-  const db = getDb();
-  
-  // Clean credentials parameter
-  const profileToSave = {
-    ...profile,
-    userId
-  };
-  
-  const index = db.profiles.findIndex(p => p.id === profile.id && p.userId === userId);
-  if (index !== -1) {
-    db.profiles[index] = profileToSave;
-  } else {
-    if (!profileToSave.id) {
-      profileToSave.id = `profile-${crypto.randomUUID()}`;
-    }
-    db.profiles.push(profileToSave);
+export async function saveProfileForUser(userId: string, profile: any): Promise<any> {
+  const profileToSave = { ...profile };
+  if (!profileToSave.id) {
+    profileToSave.id = `profile-${crypto.randomUUID()}`;
   }
   
-  saveDb(db);
-  return profileToSave;
+  // Ensure default structure doesn't break schema expectations
+  if (profileToSave.directConn === undefined) {
+    profileToSave.directConn = null;
+  }
+  if (profileToSave.oauthTokens === undefined) {
+    profileToSave.oauthTokens = null;
+  }
+  if (profileToSave.selectedSite === undefined) {
+    profileToSave.selectedSite = null;
+  }
+  if (profileToSave.geminiApiKey === undefined) {
+    profileToSave.geminiApiKey = null;
+  }
+
+  return await convex.mutation(api.profiles.saveForUser, {
+    userId,
+    profile: profileToSave
+  }) as any;
 }
 
-export function deleteProfileForUser(userId: string, profileId: string): void {
-  const db = getDb();
-  db.profiles = db.profiles.filter(p => !(p.id === profileId && p.userId === userId));
-  saveDb(db);
+export async function deleteProfileForUser(userId: string, profileId: string): Promise<void> {
+  try {
+    await convex.mutation(api.profiles.deleteForUser, { userId, id: profileId });
+  } catch (err) {
+    console.error("Convex deleteProfileForUser error:", err);
+  }
 }
 
 // Chat Sessions methods
-export function getSessionsForUser(userId: string): any[] {
-  const db = getDb();
-  return db.sessions.filter(s => s.userId === userId);
+export async function getSessionsForUser(userId: string): Promise<any[]> {
+  try {
+    return await convex.query(api.sessions.getForUser, { userId }) as any[];
+  } catch (err) {
+    console.error("Convex getSessionsForUser error:", err);
+    return [];
+  }
 }
 
-export function saveSessionForUser(userId: string, session: any): any {
-  const db = getDb();
-  
-  const sessionToSave = {
-    ...session,
-    userId,
-    updatedAt: Date.now()
-  };
-  
-  const index = db.sessions.findIndex(s => s.id === session.id && s.userId === userId);
-  if (index !== -1) {
-    db.sessions[index] = sessionToSave;
-  } else {
-    if (!sessionToSave.id) {
-      sessionToSave.id = `session-${crypto.randomUUID()}`;
-    }
-    db.sessions.push(sessionToSave);
+export async function saveSessionForUser(userId: string, session: any): Promise<any> {
+  const sessionToSave = { ...session };
+  if (!sessionToSave.id) {
+    sessionToSave.id = `session-${crypto.randomUUID()}`;
   }
   
-  saveDb(db);
-  return sessionToSave;
+  if (!sessionToSave.createdAt) {
+    sessionToSave.createdAt = Date.now();
+  }
+  if (!sessionToSave.messages) {
+    sessionToSave.messages = [];
+  }
+  if (!sessionToSave.activeProfileId) {
+    sessionToSave.activeProfileId = "default";
+  }
+
+  return await convex.mutation(api.sessions.saveForUser, {
+    userId,
+    session: sessionToSave
+  }) as any;
 }
 
-export function deleteSessionForUser(userId: string, sessionId: string): void {
-  const db = getDb();
-  db.sessions = db.sessions.filter(s => !(s.id === sessionId && s.userId === userId));
-  saveDb(db);
+export async function deleteSessionForUser(userId: string, sessionId: string): Promise<void> {
+  try {
+    await convex.mutation(api.sessions.deleteForUser, { userId, id: sessionId });
+  } catch (err) {
+    console.error("Convex deleteSessionForUser error:", err);
+  }
 }
