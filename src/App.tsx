@@ -678,7 +678,7 @@ export default function App() {
       if (selectedModelProvider !== "google") setSelectedModelProvider("google");
       if (selectedModelName !== "gemini-3.5-flash") setSelectedModelName("gemini-3.5-flash");
     }
-  }, [activeProfileId, profiles, authType, oauthTokens, selectedSite, directConn, geminiApiKey, openaiApiKey, selectedModelProvider, selectedModelName]);
+  }, [activeProfileId, profiles]);
 
   // Chat history lifecycle handlers
   const handleCreateNewSession = async () => {
