@@ -1193,7 +1193,7 @@ export default function App() {
     }, 1000);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [authType, directConn, oauthTokens, selectedSite, geminiApiKey, openaiApiKey, selectedModelProvider, selectedModelName, activeProfileId, profiles]);
+  }, [authType, JSON.stringify(directConn), JSON.stringify(oauthTokens), JSON.stringify(selectedSite), geminiApiKey, openaiApiKey, selectedModelProvider, selectedModelName, activeProfileId]);
 
   // Sync active profile connection settings dynamically in memory
   useEffect(() => {
@@ -1230,7 +1230,7 @@ export default function App() {
       }
       return p;
     }));
-  }, [authType, directConn, oauthTokens, selectedSite, geminiApiKey, openaiApiKey, selectedModelProvider, selectedModelName, activeProfileId, profiles]);
+  }, [authType, JSON.stringify(directConn), JSON.stringify(oauthTokens), JSON.stringify(selectedSite), geminiApiKey, openaiApiKey, selectedModelProvider, selectedModelName, activeProfileId]);
 
   // Sync chat sessions updates to server with a 1s debounce
   useEffect(() => {
@@ -1283,7 +1283,7 @@ export default function App() {
       setInputEmail(directConn.email);
       setInputToken(directConn.apiToken);
     }
-  }, [directConn]);
+  }, [JSON.stringify(directConn)]);
 
   // --- WORKSPACE LOADER EFFECT ---
   useEffect(() => {
