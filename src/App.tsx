@@ -931,7 +931,11 @@ export default function App() {
           model: selectedModelName || "gemini-3.5-flash",
           recentWorklogs,
           authConfig,
-          userProfile: currentUserDetails || null
+          userProfile: currentUserDetails || null,
+          conversationHistory: baseMessages
+            .filter(m => m.role === "user" || m.role === "agent")
+            .slice(-10)
+            .map((m: any) => ({ role: m.role, text: m.text || "" }))
         })
       });
 
@@ -2765,14 +2769,14 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-base font-semibold tracking-tight text-[#091E42] flex items-center gap-1.5">
-              My google ai studio app
+              JIRA AI Agent
               {authType === "demo" && (
                 <span className="text-[10px] uppercase font-mono bg-[#DEEBFF] text-[#0052CC] border border-[#B3D4FF] px-1.5 py-0.5 rounded font-bold tracking-wider">
                   Demo Sandbox
                 </span>
               )}
             </h1>
-            <p className="text-[11px] text-[#5E6C84]">Google AI Studio + Jira Collaborative Optimizer</p>
+            <p className="text-[11px] text-[#5E6C84]">Smart Jira Workspace · AI Co-Pilot</p>
           </div>
         </div>
 
@@ -3121,12 +3125,11 @@ export default function App() {
 
                   <button
                     onClick={() => setIsAiOpen(true)}
-                    className="px-3 py-1.5 rounded text-xs font-bold bg-[#DEEBFF] hover:bg-[#B3D4FF] text-[#0052CC] border border-[#0052CC]/15 transition flex items-center gap-1.5 cursor-pointer shadow-xs relative active:scale-95 group leading-none font-sans"
+                    title="Open JIRA AI Agent"
+                    className="w-9 h-9 rounded-xl bg-[#0052CC] hover:bg-[#0747A6] text-white flex items-center justify-center transition-all active:scale-95 cursor-pointer shadow-md hover:shadow-lg relative group"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-[#0052CC] group-hover:animate-bounce" />
-                    <span>Jira AI Agent</span>
-                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#0052CC] rounded-full animate-ping opacity-75" />
-                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#0052CC] rounded-full" />
+                    <Bot className="w-4.5 h-4.5" style={{width:"18px",height:"18px"}} />
+                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-[#36B37E] rounded-full border-2 border-white animate-pulse" />
                   </button>
                 </div>
               </div>

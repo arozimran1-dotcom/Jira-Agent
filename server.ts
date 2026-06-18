@@ -493,16 +493,17 @@ app.post("/api/jira/proxy", requireAuth, async (req, res) => {
 
 // AI Agent Endpoint
 app.post("/api/gemini/agent", requireAuth, async (req, res) => {
-  const { 
-    prompt, 
-    issues, 
-    apiKey: clientApiKey, 
-    recentWorklogs, 
-    authConfig, 
+  const {
+    prompt,
+    issues,
+    apiKey: clientApiKey,
+    recentWorklogs,
+    authConfig,
     userProfile,
     provider = "google",
     model = "gemini-3.5-flash",
-    openaiApiKey: clientOpenaiApiKey
+    openaiApiKey: clientOpenaiApiKey,
+    conversationHistory = []
   } = req.body;
 
   if (!prompt) {
@@ -547,35 +548,30 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
     };
   });
 
-  const systemInstruction = "You are Jira Time Log Agent, a friendly, conversational, and highly capable AI Assistant for Atlassian Jira, specialized in time-tracking and workflow logging. " +
-    "Your primary role is to act as a natural conversational partner. When users greet you, ask general questions, or chat, respond warmly and naturally as an AI assistant. " +
-    "When users ask you to log time or show what was logged, parse their intent into structured Jira time logs in the `proposedLogs` array, and write a natural explanation. " +
-    "Follow these guidelines:\n" +
-    "1. Match issues carefully. Call the `searchJiraIssues` tool with JQL if you need to dynamically find issues.\n" +
-    "2. Only reference work logs that correspond to the 'Current User' defined in the context. Do not confuse work logs written by other users as work logged by the current user.\n" +
-    "3. Contextual understanding: If the user says 'last task', refer to the 'User's Recent Worklogs' array (which are pre-filtered to the current user) to identify which issue they most recently logged time against.\n" +
-    "4. Duration must be formatted as normal Jira time tracking patterns.\n" +
-    "5. Date extraction: Determine absolute Date based on today's context. Provide 'started' field in ISO 8601 format, but always set the time to 12:00:00.000+0000 (e.g. `YYYY-MM-DDT12:00:00.000+0000`) as the exact time of day is not required in Jira.\n" +
-    "6. Status confidence: Use 'high' confidence when an issue key matches perfectly, 'medium' for semantic matches, and 'low' for fallbacks.\n" +
-    "7. References: At the end of every response, you MUST append a '### References' section. List the JQL queries executed, issue keys analyzed, or user worklogs read, showing dates and authors, so the user knows exactly what source data was queried.\n" +
-    "8. Spelling Correction: Scan the user's comments for spelling mistakes (e.g., 'Discoussin' -> 'Discussion', 'yestedays' -> 'yesterday'). In the prepared log comment, use the corrected spelling. Highlight this correction to the user in your explanation.\n" +
-    "9. Smart Clarification Questionnaire: If there is ambiguity (e.g. multiple matching issues, unclear duration, or when guessing the task using a 'medium' or 'low' confidence match), do NOT immediately propose logs (leave `proposedLogs` empty). Instead, present a friendly set of clarification questions or choices in your explanation. Once the user clarifies, proceed to propose the logs.\n" +
-    "10. Output formatting: You MUST return a valid JSON object matching the schema:\n" +
-    "{\n" +
-    "  \"explanation\": \"friendly text message answering user\",\n" +
-    "  \"proposedLogs\": [\n" +
-    "    {\n" +
-    "      \"issueKey\": \"PR-101\",\n" +
-    "      \"issueSummary\": \"Example Task\",\n" +
-    "      \"timeSpent\": \"2h 30m\",\n" +
-    "      \"comment\": \"Corrected spelling comment text\",\n" +
-    "      \"started\": \"YYYY-MM-DDT12:00:00.000+0000\",\n" +
-    "      \"confidence\": \"high\"\n" +
-    "    }\n" +
-    "  ]\n" +
-    "}";
+  const systemInstruction = "You are JIRA AI Agent, a sharp and efficient AI assistant for Atlassian Jira time-tracking and workflow. " +
+    "Be concise — respond in 1-3 short sentences max unless detail is truly needed. Never write long paragraphs or bullet lists unless the user asks. " +
+    "For greetings or casual chat, reply very briefly and naturally. " +
+    "For time logging requests, ALWAYS propose logs immediately — never ask clarifying questions. Pick the best matching issue using your judgment. " +
+    "Rules:\n" +
+    "1. Match issues using context, recent worklogs, and issue keys. Call searchJiraIssues only when no match exists in context.\n" +
+    "2. Only use worklogs authored by the 'Current User'. 'Last task' = the most recent entry in User's Recent Worklogs.\n" +
+    "3. Durations: use Jira format (e.g. '2h', '30m', '1h 30m').\n" +
+    "4. Dates: 'started' field must be ISO 8601 at noon UTC: YYYY-MM-DDT12:00:00.000+0000. Infer date from context (today, yesterday, etc).\n" +
+    "5. Confidence: 'high' = exact key match, 'medium' = semantic match, 'low' = fallback guess.\n" +
+    "6. Spelling: auto-correct typos in comments silently.\n" +
+    "7. NEVER add a References or Sources section. NEVER ask follow-up questions if you can make a reasonable guess. Just log it.\n" +
+    "8. Output: valid JSON only, schema: { \"explanation\": string, \"proposedLogs\": [{ \"issueKey\", \"issueSummary\", \"timeSpent\", \"comment\", \"started\", \"confidence\" }] }";
 
-  const messageContents = `Current User: ${userProfile ? JSON.stringify(userProfile) : "Unknown User"}\n\nUser time-tracking prompt: "${prompt}"\n\nUser's Recent Worklogs across all issues:\n${JSON.stringify(recentWorklogs || [], null, 2)}\n\nAvailable Jira Issues/Subtasks in project:\n${JSON.stringify(issuesContext, null, 2)}`;
+  const contextBlock = `Current User: ${userProfile ? JSON.stringify(userProfile) : "Unknown User"}\nToday: ${new Date().toISOString().split("T")[0]}\n\nUser's Recent Worklogs:\n${JSON.stringify(recentWorklogs || [], null, 2)}\n\nAvailable Issues:\n${JSON.stringify(issuesContext, null, 2)}`;
+
+  const messageContents = `${contextBlock}\n\nUser: "${prompt}"`;
+
+  // Build prior chat turns for context (skip the welcome message)
+  const priorTurns = (conversationHistory as any[]).filter(m => m.text && m.role !== "system");
+  const geminiHistory = priorTurns.slice(0, -1).map((m: any) => ({
+    role: m.role === "user" ? "user" : "model",
+    parts: [{ text: m.text }]
+  }));
 
   if (provider === "openai") {
     const openaiApiKey = clientOpenaiApiKey || process.env.OPENAI_API_KEY;
@@ -586,8 +582,13 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
     }
 
     try {
+      const priorOpenAI = priorTurns.slice(0, -1).map((m: any) => ({
+        role: m.role === "user" ? "user" : "assistant",
+        content: m.text
+      }));
       const messages: any[] = [
         { role: "system", content: systemInstruction },
+        ...priorOpenAI,
         { role: "user", content: messageContents }
       ];
 
@@ -711,7 +712,8 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
       });
 
       const chat = ai.chats.create({
-        model: model, // Dynamically use the selected model
+        model: model,
+        history: geminiHistory,
         config: {
           systemInstruction,
           responseMimeType: "application/json",
