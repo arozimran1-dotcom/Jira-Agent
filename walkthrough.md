@@ -44,6 +44,10 @@ This walkthrough summarizes the recent enhancements added to the Jira Agent to f
 ### 9. ReactMarkdown Warning Fixes
 - **Filtered DOM Attributes**: Destructured `className` out of the props mapping inside `<ReactMarkdown>` custom components to prevent passing unhandled custom properties to standard HTML elements.
 
+### 10. Loop Prevention & API Access Guards
+- **Safety Guards**: Added early exits to automatic `useEffect` hooks and their corresponding fetch handlers in `src/App.tsx`.
+- **Trigger Conditions**: Fetching is skipped if the user profile is not fully setup yet (`appUser.hasSetupProfile === false`), if basic API credentials/tokens are empty, or if OAuth access token details are missing. This completely halts the cascading proxy loop, resolving the browser error `Failed to load resource: net::ERR_INSUFFICIENT_RESOURCES`.
+
 ## Validation Results
 - Verified that the application boots to the glassmorphic login screen, registers a user, and successfully enters the main workspace dashboard showing user email.
 - Verified that Confluence and Developer Guide documents are loaded cleanly under "Docs & Wiki" using the tab toggle.
@@ -51,3 +55,5 @@ This walkthrough summarizes the recent enhancements added to the Jira Agent to f
 - Verified that connection credentials and chat history are saved securely on the server-side JSON database (`server_db.json`) scoped under the active user ID.
 - Verified that clicking Logout redirects to the login screen and deletes client-side JWT token cache.
 - Verified that `npm run lint` compiler passes successfully.
+- Verified that production bundle builds successfully with `npm run build`.
+

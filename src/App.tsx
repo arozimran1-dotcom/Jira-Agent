@@ -291,6 +291,17 @@ export default function App() {
       return;
     }
 
+    // Guard: don't load if onboarding is active, or credentials are missing/incomplete
+    if (appUser && appUser.hasSetupProfile === false) {
+      return;
+    }
+    if (authType === "basic" && (!directConn || !directConn.apiToken)) {
+      return;
+    }
+    if (authType === "oauth" && (!oauthTokens || !selectedSite)) {
+      return;
+    }
+
     const fetchMyself = async () => {
       try {
         const data = await makeProxyCall("myself", "GET");
@@ -302,7 +313,7 @@ export default function App() {
       }
     };
     fetchMyself();
-  }, [activeProfileId, authType]);
+  }, [activeProfileId, authType, directConn, oauthTokens, selectedSite, appUser]);
 
   // --- BACKEND JWT DATABASE SYNC METHODS ---
   const fetchProfiles = async () => {
@@ -1277,7 +1288,7 @@ export default function App() {
   // --- WORKSPACE LOADER EFFECT ---
   useEffect(() => {
     loadWorkspace();
-  }, [authType, selectedSite, directConn]);
+  }, [authType, selectedSite, directConn, appUser]);
 
   // Keep issue detail updated when issues array updates
   useEffect(() => {
@@ -1570,16 +1581,21 @@ export default function App() {
       return;
     }
 
-    if (authType === "oauth" && !selectedSite) {
-      // Need site selection first
-      if (oauthTokens) {
-        fetchAvailableSites(oauthTokens.access_token);
-      }
+    // Guard: don't load workspace if onboarding setup is not completed yet
+    if (appUser && appUser.hasSetupProfile === false) {
       return;
     }
 
-    if (authType === "basic" && !directConn) {
-      // Need direct credentials
+    // Guard: check for basic credentials completeness
+    if (authType === "basic" && (!directConn || !directConn.apiToken)) {
+      return;
+    }
+
+    // Guard: check for oauth credentials completeness
+    if (authType === "oauth" && (!oauthTokens || !selectedSite)) {
+      if (authType === "oauth" && !selectedSite && oauthTokens) {
+        fetchAvailableSites(oauthTokens.access_token);
+      }
       return;
     }
 
@@ -1738,6 +1754,12 @@ export default function App() {
       if (!selectedSpace) setSelectedSpace(demoSpaces[0]);
       return;
     }
+
+    // Guard: check credentials and onboarding profile completeness
+    if (appUser && appUser.hasSetupProfile === false) return;
+    if (authType === "basic" && (!directConn || !directConn.apiToken)) return;
+    if (authType === "oauth" && (!oauthTokens || !selectedSite)) return;
+
     setIsFetchingConfluence(true);
     setErrorMessage(null);
     try {
@@ -1840,6 +1862,12 @@ export default function App() {
       }
       return;
     }
+
+    // Guard: check credentials and onboarding profile completeness
+    if (appUser && appUser.hasSetupProfile === false) return;
+    if (authType === "basic" && (!directConn || !directConn.apiToken)) return;
+    if (authType === "oauth" && (!oauthTokens || !selectedSite)) return;
+
     setIsFetchingConfluence(true);
     setErrorMessage(null);
     try {
@@ -1889,10 +1917,15 @@ export default function App() {
 
   // Load Spaces when entering Confluence view
   useEffect(() => {
+    // Guard: check credentials and onboarding profile completeness
+    if (appUser && appUser.hasSetupProfile === false) return;
+    if (authType === "basic" && (!directConn || !directConn.apiToken)) return;
+    if (authType === "oauth" && (!oauthTokens || !selectedSite)) return;
+
     if (activeTab === "docs" && docsSubTab === "wiki") {
       fetchConfluenceSpaces();
     }
-  }, [activeTab, docsSubTab, authType, selectedSite, directConn]);
+  }, [activeTab, docsSubTab, authType, selectedSite, directConn, appUser]);
 
   // Load pages when selected space updates
   useEffect(() => {
@@ -1915,6 +1948,12 @@ export default function App() {
 
   const fetchIssuesForProject = async (projectKey: string) => {
     if (authType === "demo") return; // Demo issues are handled via direct state/localStorage
+
+    // Guard: check credentials and onboarding profile completeness
+    if (appUser && appUser.hasSetupProfile === false) return;
+    if (authType === "basic" && (!directConn || !directConn.apiToken)) return;
+    if (authType === "oauth" && (!oauthTokens || !selectedSite)) return;
+
     setIsLoading(true);
     setErrorMessage(null);
     try {
