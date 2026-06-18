@@ -97,7 +97,7 @@ export async function getProfilesForUser(userId: string): Promise<any[]> {
       ...p,
       openaiApiKey: p.openaiApiKey || null,
       selectedModelProvider: p.selectedModelProvider || "google",
-      selectedModelName: p.selectedModelName || "gemini-3.5-flash"
+      selectedModelName: p.selectedModelName || "gemini-2.0-flash"
     }));
   } catch (err) {
     console.error("Convex getProfilesForUser error:", err);
@@ -136,7 +136,7 @@ export async function saveProfileForUser(userId: string, profile: any): Promise<
     profileToSave.selectedModelProvider = "google";
   }
   if (profileToSave.selectedModelName === undefined) {
-    profileToSave.selectedModelName = "gemini-3.5-flash";
+    profileToSave.selectedModelName = "gemini-2.0-flash";
   }
 
   return await convex.mutation(api.profiles.saveForUser, {

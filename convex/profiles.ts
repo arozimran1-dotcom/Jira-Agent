@@ -52,7 +52,7 @@ export const saveForUser = mutation({
       geminiApiKey: profile.geminiApiKey,
       openaiApiKey: (profile as any).openaiApiKey !== undefined ? (profile as any).openaiApiKey : null,
       selectedModelProvider: (profile as any).selectedModelProvider !== undefined ? (profile as any).selectedModelProvider : "google",
-      selectedModelName: (profile as any).selectedModelName !== undefined ? (profile as any).selectedModelName : "gemini-3.5-flash",
+      selectedModelName: (profile as any).selectedModelName !== undefined ? (profile as any).selectedModelName : "gemini-2.0-flash",
     };
 
     if (existing) {

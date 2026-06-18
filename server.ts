@@ -425,7 +425,9 @@ async function makeInternalJiraRequest(endpoint: string, method: string, bodyPay
 
   if (authType === "oauth") {
     if (!cloudId || !accessToken) throw new Error("OAuth require cloudId and accessToken");
-    targetUrl = isWiki ? `https://api.atlassian.com/ex/jira/${cloudId}/${endpoint}` : `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/${endpoint}`;
+    targetUrl = isWiki
+      ? `https://api.atlassian.com/ex/confluence/${cloudId}/${endpoint}`
+      : `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/${endpoint}`;
     authorizationHeader = `Bearer ${accessToken}`;
   } else if (authType === "basic") {
     if (!domain || !email || !apiToken) throw new Error("Basic Authentication requires domain, email, and apiToken");
@@ -501,9 +503,10 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
     authConfig,
     userProfile,
     provider = "google",
-    model = "gemini-3.5-flash",
+    model = "gemini-2.0-flash",
     openaiApiKey: clientOpenaiApiKey,
-    conversationHistory = []
+    conversationHistory = [],
+    activeProject
   } = req.body;
 
   if (!prompt) {
@@ -552,6 +555,7 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
     "Be concise — respond in 1-3 short sentences max unless detail is truly needed. Never write long paragraphs or bullet lists unless the user asks. " +
     "For greetings or casual chat, reply very briefly and naturally. " +
     "For time logging requests, ALWAYS propose logs immediately — never ask clarifying questions. Pick the best matching issue using your judgment. " +
+    "For task/issue creation requests, ALWAYS propose the new task immediately — pick the most sensible project, type, and priority from context. " +
     "Rules:\n" +
     "1. Match issues using context, recent worklogs, and issue keys. Call searchJiraIssues only when no match exists in context.\n" +
     "2. Only use worklogs authored by the 'Current User'. 'Last task' = the most recent entry in User's Recent Worklogs.\n" +
@@ -559,10 +563,11 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
     "4. Dates: 'started' field must be ISO 8601 at noon UTC: YYYY-MM-DDT12:00:00.000+0000. Infer date from context (today, yesterday, etc).\n" +
     "5. Confidence: 'high' = exact key match, 'medium' = semantic match, 'low' = fallback guess.\n" +
     "6. Spelling: auto-correct typos in comments silently.\n" +
-    "7. NEVER add a References or Sources section. NEVER ask follow-up questions if you can make a reasonable guess. Just log it.\n" +
-    "8. Output: valid JSON only, schema: { \"explanation\": string, \"proposedLogs\": [{ \"issueKey\", \"issueSummary\", \"timeSpent\", \"comment\", \"started\", \"confidence\" }] }";
+    "7. NEVER add a References or Sources section. NEVER ask follow-up questions if you can make a reasonable guess.\n" +
+    "8. For task creation: populate proposedTasks. Use the project key from Available Issues context. issuetype must be 'Task', 'Story', 'Bug', or 'Epic'. priority must be 'Highest', 'High', 'Medium', 'Low', or 'Lowest'.\n" +
+    "9. Output: valid JSON only, schema: { \"explanation\": string, \"proposedLogs\": [...], \"proposedTasks\": [{ \"project\", \"summary\", \"description\", \"issuetype\", \"priority\" }] }";
 
-  const contextBlock = `Current User: ${userProfile ? JSON.stringify(userProfile) : "Unknown User"}\nToday: ${new Date().toISOString().split("T")[0]}\n\nUser's Recent Worklogs:\n${JSON.stringify(recentWorklogs || [], null, 2)}\n\nAvailable Issues:\n${JSON.stringify(issuesContext, null, 2)}`;
+  const contextBlock = `Current User: ${userProfile ? JSON.stringify(userProfile) : "Unknown User"}\nToday: ${new Date().toISOString().split("T")[0]}\nActive Project: ${activeProject ? JSON.stringify(activeProject) : "Unknown"}\n\nUser's Recent Worklogs:\n${JSON.stringify(recentWorklogs || [], null, 2)}\n\nAvailable Issues:\n${JSON.stringify(issuesContext, null, 2)}`;
 
   const messageContents = `${contextBlock}\n\nUser: "${prompt}"`;
 
@@ -756,9 +761,38 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
                   },
                   required: ["issueKey", "issueSummary", "timeSpent", "comment", "started", "confidence"]
                 }
+              },
+              proposedTasks: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    project: {
+                      type: Type.STRING,
+                      description: "The Jira project key to create the issue in (e.g. 'APP', 'PR')."
+                    },
+                    summary: {
+                      type: Type.STRING,
+                      description: "Short title/summary of the new issue."
+                    },
+                    description: {
+                      type: Type.STRING,
+                      description: "Detailed description of the new issue."
+                    },
+                    issuetype: {
+                      type: Type.STRING,
+                      description: "Jira issue type: 'Task', 'Story', 'Bug', or 'Epic'."
+                    },
+                    priority: {
+                      type: Type.STRING,
+                      description: "Issue priority: 'Highest', 'High', 'Medium', 'Low', or 'Lowest'."
+                    }
+                  },
+                  required: ["project", "summary", "description", "issuetype", "priority"]
+                }
               }
             },
-            required: ["explanation", "proposedLogs"]
+            required: ["explanation", "proposedLogs", "proposedTasks"]
           },
           tools: [{
             functionDeclarations: [{

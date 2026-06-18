@@ -32,7 +32,8 @@ import {
   ExternalLink,
   FileText,
   Bot,
-  Send
+  Send,
+  Save
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { initDB, saveSession, getSession, getAllSessions, deleteSession, ChatSession } from "./db";
@@ -193,7 +194,8 @@ export default function App() {
   const [onboardGeminiKey, setOnboardGeminiKey] = useState("");
   const [onboardOpenaiKey, setOnboardOpenaiKey] = useState("");
   const [onboardModelProvider, setOnboardModelProvider] = useState("google");
-  const [onboardModelName, setOnboardModelName] = useState("gemini-3.5-flash");
+  const [onboardModelName, setOnboardModelName] = useState("gemini-2.0-flash");
+  const [aiSettingsSaved, setAiSettingsSaved] = React.useState(false);
   const [onboardShowOpenai, setOnboardShowOpenai] = useState(false);
   const [onboardLoading, setOnboardLoading] = useState(false);
   const [onboardError, setOnboardError] = useState<string | null>(null);
@@ -216,7 +218,7 @@ export default function App() {
   const [geminiApiKey, setGeminiApiKey] = useState<string | null>(activeProfile?.geminiApiKey || null);
   const [openaiApiKey, setOpenaiApiKey] = useState<string | null>(activeProfile?.openaiApiKey || null);
   const [selectedModelProvider, setSelectedModelProvider] = useState<string>(activeProfile?.selectedModelProvider || "google");
-  const [selectedModelName, setSelectedModelName] = useState<string>(activeProfile?.selectedModelName || "gemini-3.5-flash");
+  const [selectedModelName, setSelectedModelName] = useState<string>(activeProfile?.selectedModelName || "gemini-2.0-flash");
 
   // Profile manager form inputs
   const [profileFormName, setProfileFormName] = useState("");
@@ -672,8 +674,8 @@ export default function App() {
       if ((selectedModelProvider || "google") !== (activePrf.selectedModelProvider || "google")) {
         setSelectedModelProvider(activePrf.selectedModelProvider || "google");
       }
-      if ((selectedModelName || "gemini-3.5-flash") !== (activePrf.selectedModelName || "gemini-3.5-flash")) {
-        setSelectedModelName(activePrf.selectedModelName || "gemini-3.5-flash");
+      if ((selectedModelName || "gemini-2.0-flash") !== (activePrf.selectedModelName || "gemini-2.0-flash")) {
+        setSelectedModelName(activePrf.selectedModelName || "gemini-2.0-flash");
       }
     } else {
       if (authType !== "oauth") setAuthType("oauth");
@@ -683,7 +685,7 @@ export default function App() {
       if (geminiApiKey !== null) setGeminiApiKey(null);
       if (openaiApiKey !== null) setOpenaiApiKey(null);
       if (selectedModelProvider !== "google") setSelectedModelProvider("google");
-      if (selectedModelName !== "gemini-3.5-flash") setSelectedModelName("gemini-3.5-flash");
+      if (selectedModelName !== "gemini-2.0-flash") setSelectedModelName("gemini-2.0-flash");
     }
   }, [activeProfileId, profiles]);
 
@@ -935,10 +937,11 @@ export default function App() {
           apiKey: geminiApiKey,
           openaiApiKey: openaiApiKey,
           provider: selectedModelProvider || "google",
-          model: selectedModelName || "gemini-3.5-flash",
+          model: selectedModelName || "gemini-2.0-flash",
           recentWorklogs,
           authConfig,
           userProfile: currentUserDetails || null,
+          activeProject: selectedProject ? { key: selectedProject.key, name: selectedProject.name } : null,
           conversationHistory: baseMessages
             .filter(m => m.role === "user" || m.role === "agent")
             .slice(-10)
@@ -952,12 +955,13 @@ export default function App() {
       }
 
       const resData = await response.json();
-      
+
       const agentMessage = {
         id: `agent-${Date.now()}`,
         role: "agent",
         text: resData.explanation,
-        proposedLogs: resData.proposedLogs || []
+        proposedLogs: resData.proposedLogs || [],
+        proposedTasks: resData.proposedTasks || []
       };
 
       setAiMessages([...baseMessages, agentMessage]);
@@ -1202,6 +1206,56 @@ export default function App() {
     }
   };
 
+  const handleCreateTaskFromAi = async (messageId: string, taskIndex: number, task: any) => {
+    setAiMessages(prev => prev.map(msg => {
+      if (msg.id === messageId && msg.proposedTasks) {
+        const tasks = [...msg.proposedTasks];
+        tasks[taskIndex] = { ...tasks[taskIndex], isCreating: true };
+        return { ...msg, proposedTasks: tasks };
+      }
+      return msg;
+    }));
+
+    try {
+      const adfDesc = task.description ? {
+        type: "doc", version: 1,
+        content: [{ type: "paragraph", content: [{ type: "text", text: task.description }] }]
+      } : undefined;
+
+      const payload: any = {
+        fields: {
+          project: { key: task.project },
+          summary: task.summary,
+          issuetype: { name: task.issuetype || "Task" },
+          priority: { name: task.priority || "Medium" }
+        }
+      };
+      if (adfDesc) payload.fields.description = adfDesc;
+
+      const created = await makeProxyCall("issue", "POST", payload);
+
+      setAiMessages(prev => prev.map(msg => {
+        if (msg.id === messageId && msg.proposedTasks) {
+          const tasks = [...msg.proposedTasks];
+          tasks[taskIndex] = { ...tasks[taskIndex], isCreating: false, success: true, createdKey: created?.key };
+          return { ...msg, proposedTasks: tasks };
+        }
+        return msg;
+      }));
+
+      if (selectedProject) fetchIssuesForProject(selectedProject.key);
+    } catch (err: any) {
+      setAiMessages(prev => prev.map(msg => {
+        if (msg.id === messageId && msg.proposedTasks) {
+          const tasks = [...msg.proposedTasks];
+          tasks[taskIndex] = { ...tasks[taskIndex], isCreating: false, error: err.message || "Failed to create task." };
+          return { ...msg, proposedTasks: tasks };
+        }
+        return msg;
+      }));
+    }
+  };
+
   // Filter terms
   const [typeFilter, setTypeFilter] = useState<string>("All");
   const [priorityFilter, setPriorityFilter] = useState<string>("All");
@@ -1241,7 +1295,7 @@ export default function App() {
       (geminiApiKey || null) !== (activePrf.geminiApiKey || null) ||
       (openaiApiKey || null) !== (activePrf.openaiApiKey || null) ||
       (selectedModelProvider || "google") !== (activePrf.selectedModelProvider || "google") ||
-      (selectedModelName || "gemini-3.5-flash") !== (activePrf.selectedModelName || "gemini-3.5-flash");
+      (selectedModelName || "gemini-2.0-flash") !== (activePrf.selectedModelName || "gemini-2.0-flash");
 
     if (!hasChanges) return;
 
@@ -1824,9 +1878,9 @@ export default function App() {
         setConfluenceSpaces([]);
       }
     } catch (err: any) {
-      console.error("Confluence fetch spaces error:", err);
+      console.warn("Confluence fetch spaces error (non-critical):", err);
       setConfluenceSpaces([]);
-      setErrorMessage(`Could not load Confluence Spaces: ${err.message}. Please verify Confluence permission or API keys setup.`);
+      // Don't surface as a blocking error — Confluence may not be enabled on this workspace
     } finally {
       setIsFetchingConfluence(false);
     }
@@ -2607,7 +2661,7 @@ export default function App() {
                         onChange={(e) => {
                           const prov = e.target.value;
                           setOnboardModelProvider(prov);
-                          setOnboardModelName(prov === "google" ? "gemini-3.5-flash" : "gpt-5.5");
+                          setOnboardModelName(prov === "google" ? "gemini-2.0-flash" : "gpt-4o");
                         }}
                         className="w-full appearance-none bg-black/40 border border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-xl px-4 py-3.5 text-sm outline-none transition-all text-white hover:border-white/20 cursor-pointer"
                       >
@@ -2627,15 +2681,15 @@ export default function App() {
                       >
                         {onboardModelProvider === "google" ? (
                           <>
-                            <option value="gemini-3.5-flash">Gemini 3.5 Flash (Fast)</option>
-                            <option value="gemini-3.5-pro">Gemini 3.5 Pro (Flagship)</option>
-                            <option value="gemini-3.1-pro">Gemini 3.1 Pro (Legacy)</option>
+                            <option value="gemini-2.0-flash">Gemini 2.0 Flash (Fast)</option>
+                            <option value="gemini-2.5-pro">Gemini 2.5 Pro (Flagship)</option>
+                            <option value="gemini-1.5-pro">Gemini 1.5 Pro (Legacy)</option>
                           </>
                         ) : (
                           <>
-                            <option value="gpt-5.5">GPT-5.5 (Flagship)</option>
-                            <option value="gpt-5.2">GPT-5.2 (Legacy 2026)</option>
-                            <option value="gpt-4.5">GPT-4.5 (Legacy)</option>
+                            <option value="gpt-4o">GPT-4o (Flagship)</option>
+                            <option value="gpt-4o-mini">GPT-4o Mini (Fast)</option>
+                            <option value="gpt-4-turbo">GPT-4 Turbo (Legacy)</option>
                           </>
                         )}
                       </select>
@@ -3918,11 +3972,33 @@ export default function App() {
 
                   {/* Active Profile AI Settings Configuration Panel */}
                   <div className="bg-[#FAFBFC] border border-[#DFE1E6] rounded-xl p-5 shadow-xs space-y-4">
-                    <div className="flex items-center gap-1.5 pb-2 border-b border-slate-200">
-                      <Sparkles className="w-4 h-4 text-indigo-500" />
-                      <h4 className="text-xs font-bold text-[#091E42] uppercase tracking-wide">
-                        Active Profile AI Settings
-                      </h4>
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-indigo-500" />
+                        <h4 className="text-xs font-bold text-[#091E42] uppercase tracking-wide">
+                          Active Profile AI Settings
+                        </h4>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          const activePrf = profiles.find(p => p.id === activeProfileId);
+                          if (!activePrf) return;
+                          try {
+                            await saveProfileBackend({ ...activePrf, geminiApiKey, openaiApiKey, selectedModelProvider, selectedModelName });
+                            setAiSettingsSaved(true);
+                            setTimeout(() => setAiSettingsSaved(false), 2000);
+                          } catch (err) {
+                            console.error("Save AI settings failed:", err);
+                          }
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0052CC] hover:bg-[#0747A6] text-white text-[11px] font-semibold rounded-lg transition cursor-pointer"
+                      >
+                        {aiSettingsSaved ? (
+                          <><Check className="w-3 h-3" /> Saved!</>
+                        ) : (
+                          <><Save className="w-3 h-3" /> Save AI Settings</>
+                        )}
+                      </button>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3934,7 +4010,7 @@ export default function App() {
                           onChange={(e) => {
                             const prov = e.target.value;
                             setSelectedModelProvider(prov);
-                            setSelectedModelName(prov === "google" ? "gemini-3.5-flash" : "gpt-5.5");
+                            setSelectedModelName(prov === "google" ? "gemini-2.0-flash" : "gpt-4o");
                           }}
                           className="w-full px-3 py-2 bg-white hover:bg-slate-50 border border-[#DFE1E6] focus:border-[#0052CC] rounded-lg text-xs text-[#091E42] outline-none transition cursor-pointer"
                         >
@@ -3947,29 +4023,33 @@ export default function App() {
                       <div className="space-y-1">
                         <label className="text-[11px] font-semibold text-[#42526E]">AI Model Version</label>
                         <select
-                          value={selectedModelName || (selectedModelProvider === "google" ? "gemini-3.5-flash" : "gpt-5.5")}
+                          value={
+                            selectedModelProvider === "google"
+                              ? (["gemini-2.0-flash","gemini-2.5-pro","gemini-1.5-pro"].includes(selectedModelName || "") ? selectedModelName! : "gemini-2.0-flash")
+                              : (["gpt-4o","gpt-4o-mini","gpt-4-turbo"].includes(selectedModelName || "") ? selectedModelName! : "gpt-4o")
+                          }
                           onChange={(e) => setSelectedModelName(e.target.value)}
                           className="w-full px-3 py-2 bg-white hover:bg-slate-50 border border-[#DFE1E6] focus:border-[#0052CC] rounded-lg text-xs text-[#091E42] outline-none transition cursor-pointer"
                         >
                           {selectedModelProvider === "google" ? (
                             <>
-                              <option value="gemini-3.5-flash">Gemini 3.5 Flash (Fast/Default)</option>
-                              <option value="gemini-3.5-pro">Gemini 3.5 Pro (Reasoning Flagship)</option>
-                              <option value="gemini-3.1-pro">Gemini 3.1 Pro (Legacy Flagship)</option>
+                              <option value="gemini-2.0-flash">Gemini 2.0 Flash (Fast/Default)</option>
+                              <option value="gemini-2.5-pro">Gemini 2.5 Pro (Reasoning Flagship)</option>
+                              <option value="gemini-1.5-pro">Gemini 1.5 Pro (Legacy)</option>
                             </>
                           ) : (
                             <>
-                              <option value="gpt-5.5">GPT-5.5 (Flagship)</option>
-                              <option value="gpt-5.2">GPT-5.2 (Legacy 2026)</option>
-                              <option value="gpt-4.5">GPT-4.5 (Legacy)</option>
+                              <option value="gpt-4o">GPT-4o (Flagship)</option>
+                              <option value="gpt-4o-mini">GPT-4o Mini (Fast)</option>
+                              <option value="gpt-4-turbo">GPT-4 Turbo (Legacy)</option>
                             </>
                           )}
                         </select>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Google key */}
+                    {/* Show only the relevant API key for selected provider */}
+                    {(selectedModelProvider || "google") === "google" ? (
                       <div className="space-y-1">
                         <label className="text-[11px] font-semibold text-[#42526E]">Google Gemini API Key</label>
                         <div className="relative">
@@ -3983,8 +4063,7 @@ export default function App() {
                           />
                         </div>
                       </div>
-
-                      {/* OpenAI key */}
+                    ) : (
                       <div className="space-y-1">
                         <label className="text-[11px] font-semibold text-[#42526E]">OpenAI API Key</label>
                         <div className="relative">
@@ -3998,7 +4077,7 @@ export default function App() {
                           />
                         </div>
                       </div>
-                    </div>
+                    )}
                   </div>
 
                   {/* Profile Cards Grid list */}
@@ -4988,6 +5067,64 @@ export default function App() {
                                   </div>
                                 );
                               })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Proposed Tasks */}
+                        {msg.proposedTasks && msg.proposedTasks.length > 0 && (
+                          <div className="mt-3.5 space-y-3 bg-white p-3 rounded-lg border border-[#DFE1E6] shadow-sm">
+                            <p className="text-[10px] font-bold text-[#6554C0] tracking-wider uppercase flex items-center gap-1.5 border-b border-[#DFE1E6] pb-1.5">
+                              <Plus className="w-3 h-3 text-[#6554C0] shrink-0" />
+                              Proposed New Tasks ({msg.proposedTasks.length})
+                            </p>
+                            <div className="space-y-3">
+                              {msg.proposedTasks.map((task: any, idx: number) => (
+                                <div key={idx} className="bg-[#FAFBFC] p-3 rounded border border-[#DFE1E6] space-y-2 text-[11px] hover:border-[#6554C0]/50 transition">
+                                  <div className="flex justify-between items-start gap-1">
+                                    <div className="max-w-[75%]">
+                                      <span className="font-bold text-[#172B4D] font-mono text-[10px] block">{task.project}</span>
+                                      <span className="text-[#091E42] font-semibold block mt-0.5 leading-snug">{task.summary}</span>
+                                    </div>
+                                    <div className="flex flex-col items-end gap-1">
+                                      <span className="px-1.5 py-0.5 rounded border text-[8.5px] font-bold uppercase bg-[#EAE6FF] text-[#403294] border-[#C0B6F2]">{task.issuetype}</span>
+                                      <span className="px-1.5 py-0.5 rounded border text-[8.5px] font-bold uppercase bg-[#EBECF0] text-[#5E6C84] border-[#DFE1E6]">{task.priority}</span>
+                                    </div>
+                                  </div>
+                                  {task.description && (
+                                    <div className="bg-white p-2 rounded text-[10.5px] text-[#42526E] italic border border-[#DFE1E6] leading-snug font-medium text-left">
+                                      {task.description}
+                                    </div>
+                                  )}
+                                  <div className="flex justify-end pt-1">
+                                    {task.success ? (
+                                      <span className="text-emerald-600 text-[10px] font-bold uppercase flex items-center gap-1">
+                                        ✓ Created {task.createdKey && <span className="font-mono">{task.createdKey}</span>}
+                                      </span>
+                                    ) : task.error ? (
+                                      <div className="text-left w-full space-y-1">
+                                        <span className="text-rose-600 text-[9px] block">Error: {task.error}</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCreateTaskFromAi(msg.id, idx, task)}
+                                          className="px-2.5 py-1 bg-[#EAE6FF] hover:bg-[#C0B6F2] text-[#403294] font-bold rounded text-[10px] uppercase cursor-pointer"
+                                        >
+                                          Retry
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCreateTaskFromAi(msg.id, idx, task)}
+                                        disabled={task.isCreating}
+                                        className="px-2.5 py-1.5 bg-[#6554C0] hover:bg-[#5243AA] text-white font-bold rounded text-[10px] uppercase tracking-wide disabled:opacity-40 cursor-pointer flex items-center gap-1"
+                                      >
+                                        {task.isCreating ? "Creating..." : "Confirm & Create"}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         )}
