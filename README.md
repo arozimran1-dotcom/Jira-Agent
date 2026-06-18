@@ -1,4 +1,4 @@
-# My google ai studio app & AI Time-Logger
+# Jira AI Agent
 
 <div align="center">
 
