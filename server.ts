@@ -19,7 +19,8 @@ import {
   getSessionsForUser, 
   saveSessionForUser, 
   deleteSessionForUser,
-  hashPassword
+  hashPassword,
+  markUserSetup
 } from "./serverDb";
 
 // Load environment variables
@@ -68,7 +69,7 @@ app.post("/api/auth/register", async (req, res) => {
   try {
     const user = await createUser(email, password);
     const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: "7d" });
-    res.status(201).json({ token, user: { id: user.id, email: user.email } });
+    res.status(201).json({ token, user: { id: user.id, email: user.email, hasSetupProfile: false } });
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Failed to register user" });
   }
@@ -90,7 +91,7 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(401).json({ error: "Invalid email or password" });
     }
     const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: "7d" });
-    res.json({ token, user: { id: user.id, email: user.email } });
+    res.json({ token, user: { id: user.id, email: user.email, hasSetupProfile: user.hasSetupProfile || false } });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Login failed" });
   }
@@ -103,7 +104,7 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
-    res.json({ id: user.id, email: user.email });
+    res.json({ id: user.id, email: user.email, hasSetupProfile: user.hasSetupProfile || false });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -132,6 +133,15 @@ app.post("/api/user/profiles", requireAuth, async (req, res) => {
 app.delete("/api/user/profiles/:id", requireAuth, async (req, res) => {
   try {
     await deleteProfileForUser(req.userId!, req.params.id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/user/mark-setup", requireAuth, async (req, res) => {
+  try {
+    await markUserSetup(req.userId!);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

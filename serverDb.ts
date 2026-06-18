@@ -38,7 +38,8 @@ export async function getUserByEmail(email: string): Promise<any | undefined> {
         id: user._id,
         email: user.email,
         passwordHash: user.passwordHash,
-        salt: user.salt
+        salt: user.salt,
+        hasSetupProfile: user.hasSetupProfile || false
       };
     }
   } catch (err) {
@@ -55,13 +56,23 @@ export async function getUserById(id: string): Promise<any | undefined> {
         id: user.id,
         email: user.email,
         passwordHash: user.passwordHash,
-        salt: user.salt
+        salt: user.salt,
+        hasSetupProfile: user.hasSetupProfile || false
       };
     }
   } catch (err) {
     console.error("Convex getUserById error:", err);
   }
   return undefined;
+}
+
+export async function markUserSetup(userId: string): Promise<void> {
+  try {
+    await convex.mutation(api.users.markProfileSetup, { userId });
+  } catch (err) {
+    console.error("Convex markUserSetup error:", err);
+    throw err;
+  }
 }
 
 export async function createUser(email: string, password: string): Promise<any> {

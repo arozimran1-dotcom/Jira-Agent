@@ -1,4 +1,4 @@
-# Jira Workspace Manager & AI Time-Logger
+# My google ai studio app & AI Time-Logger
 
 <div align="center">
 

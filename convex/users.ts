@@ -19,7 +19,7 @@ export const getById = query({
       if (userDocId) {
         const user = await ctx.db.get(userDocId);
         if (user) {
-          return { id: user._id, email: user.email, passwordHash: user.passwordHash, salt: user.salt };
+          return { id: user._id, email: user.email, passwordHash: user.passwordHash, salt: user.salt, hasSetupProfile: user.hasSetupProfile };
         }
       }
     } catch (e) {}
@@ -46,7 +46,22 @@ export const create = mutation({
       email: emailLower,
       passwordHash: args.passwordHash,
       salt: args.salt,
+      hasSetupProfile: false,
     });
     return { id: insertedId, email: emailLower };
+  },
+});
+
+export const markProfileSetup = mutation({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    try {
+      const userDocId = ctx.db.normalizeId("users", args.userId);
+      if (userDocId) {
+        await ctx.db.patch(userDocId, { hasSetupProfile: true });
+      }
+    } catch (e: any) {
+      throw new Error("Failed to mark profile setup: " + e.message);
+    }
   },
 });

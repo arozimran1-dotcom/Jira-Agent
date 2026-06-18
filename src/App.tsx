@@ -163,6 +163,19 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
+  // App User Details (from DB)
+  const [appUser, setAppUser] = useState<any>(null);
+
+  // Onboarding states
+  const [onboardDomain, setOnboardDomain] = useState("joblogic.atlassian.net");
+  const [onboardEmail, setOnboardEmail] = useState("arozi@joblogic.com");
+  const [onboardToken, setOnboardToken] = useState("");
+  const [onboardGeminiKey, setOnboardGeminiKey] = useState("");
+  const [onboardLoading, setOnboardLoading] = useState(false);
+  const [onboardError, setOnboardError] = useState<string | null>(null);
+  const [onboardShowPassword, setOnboardShowPassword] = useState(false);
+  const [onboardShowGemini, setOnboardShowGemini] = useState(false);
+
   // Session / Storage persistence states
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
 
@@ -307,15 +320,7 @@ export default function App() {
           selectedSite: null,
           geminiApiKey: null
         });
-        const defaultDemo = await saveProfileBackend({
-          name: "Demo Sandbox Simulator",
-          authType: "demo",
-          directConn: null,
-          oauthTokens: null,
-          selectedSite: null,
-          geminiApiKey: null
-        });
-        setProfiles([defaultOwner, defaultDemo]);
+        setProfiles([defaultOwner]);
         setActiveProfileId(defaultOwner.id);
         localStorage.setItem("jira_active_profile_id", defaultOwner.id);
       } else {
@@ -431,7 +436,7 @@ export default function App() {
         });
         if (res.ok) {
           const details = await res.json();
-          setCurrentUserDetails(details);
+          setAppUser(details);
         } else {
           handleLogout();
         }
@@ -461,6 +466,7 @@ export default function App() {
     localStorage.removeItem("jira_jwt_token");
     setJwtToken(null);
     setCurrentUserDetails(null);
+    setAppUser(null);
     setProfiles([]);
     setSessions([]);
     setCurrentSessionId(null);
@@ -496,7 +502,7 @@ export default function App() {
 
       localStorage.setItem("jira_jwt_token", data.token);
       setJwtToken(data.token);
-      setCurrentUserDetails(data.user);
+      setAppUser(data.user);
       
       setAuthEmail("");
       setAuthPassword("");
@@ -504,6 +510,85 @@ export default function App() {
       setAuthError(err.message || "Something went wrong.");
     } finally {
       setAuthLoading(false);
+    }
+  };
+
+  // Onboarding Setup Form Submit handler
+  const handleOnboardingSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onboardDomain.trim()) {
+      setOnboardError("Jira domain is required.");
+      return;
+    }
+    if (!onboardEmail.trim()) {
+      setOnboardError("Jira email is required.");
+      return;
+    }
+    if (!onboardToken.trim()) {
+      setOnboardError("Atlassian API Security Token is required.");
+      return;
+    }
+    if (!onboardGeminiKey.trim()) {
+      setOnboardError("Gemini API Key is required.");
+      return;
+    }
+
+    setOnboardLoading(true);
+    setOnboardError(null);
+
+    try {
+      // 1. Get the current active profile or first profile
+      const activePrf = profiles.find(p => p.id === activeProfileId) || profiles[0];
+      if (!activePrf) {
+        throw new Error("No active profile found to configure.");
+      }
+
+      // Update the active profile connection details and gemini key
+      const updatedProfile = {
+        ...activePrf,
+        authType: "basic" as JIRA_AUTH_TYPE,
+        directConn: {
+          domain: onboardDomain.trim(),
+          email: onboardEmail.trim(),
+          apiToken: onboardToken.trim()
+        },
+        geminiApiKey: onboardGeminiKey.trim()
+      };
+
+      // Call saveProfileBackend directly
+      await saveProfileBackend(updatedProfile);
+
+      // Trigger the backend API call to mark setup as complete
+      const setupRes = await fetch("/api/user/mark-setup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${jwtToken}`
+        }
+      });
+      if (!setupRes.ok) {
+        const errData = await setupRes.json();
+        throw new Error(errData.error || "Failed to mark profile setup on database.");
+      }
+
+      // 2. Mark the local app user state as setup
+      setAppUser((prev: any) => prev ? { ...prev, hasSetupProfile: true } : null);
+
+      // 3. Update the context states to match immediately
+      setAuthType("basic");
+      setDirectConn({
+        domain: onboardDomain.trim(),
+        email: onboardEmail.trim(),
+        apiToken: onboardToken.trim()
+      });
+      setGeminiApiKey(onboardGeminiKey.trim());
+
+      // 4. Reload profiles to ensure frontend is fully in sync
+      await fetchProfiles();
+    } catch (err: any) {
+      setOnboardError(err.message || "An unexpected error occurred during onboarding configuration.");
+    } finally {
+      setOnboardLoading(false);
     }
   };
 
@@ -2354,6 +2439,159 @@ export default function App() {
 
   return (
     <div id="app-root" className="min-h-screen bg-[#F4F5F7] text-[#091E42] font-sans flex flex-col antialiased">
+      {/* ONBOARDING MODAL OVERLAY */}
+      {appUser && appUser.hasSetupProfile === false && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 select-none">
+          <div className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-8 space-y-6 overflow-y-auto max-h-[95vh] text-white">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center mx-auto shadow-md mb-2">
+                <KeyRound className="w-6 h-6 animate-pulse" />
+              </div>
+              <h2 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-indigo-400 bg-clip-text text-transparent">
+                First-Time Profile Configuration
+              </h2>
+              <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                Welcome to My Google AI Studio App! Let's get you set up with your Gemini and Jira API keys to unlock advanced collaborative AI workflows.
+              </p>
+            </div>
+
+            <form onSubmit={handleOnboardingSubmit} className="space-y-4">
+              {onboardError && (
+                <div className="bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs px-4 py-3 rounded-lg flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                  <span>{onboardError}</span>
+                </div>
+              )}
+
+              {/* Gemini API Key */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                    Gemini API Key
+                  </label>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] text-indigo-400 hover:text-indigo-300 underline font-medium transition"
+                  >
+                    Get API Key
+                  </a>
+                </div>
+                <div className="relative">
+                  <input
+                    type={onboardShowGemini ? "text" : "password"}
+                    placeholder="Enter your Gemini API key (AI Studio)"
+                    value={onboardGeminiKey}
+                    onChange={(e) => setOnboardGeminiKey(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 placeholder-slate-600 outline-none transition"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setOnboardShowGemini(!onboardShowGemini)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition text-[10px] font-semibold"
+                  >
+                    {onboardShowGemini ? "HIDE" : "SHOW"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Atlassian Jira Configuration */}
+              <div className="border-t border-slate-800/60 pt-4 mt-2 space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5 pb-1">
+                  Atlassian Jira Credentials
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                      Jira Cloud Domain
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="company.atlassian.net"
+                      value={onboardDomain}
+                      onChange={(e) => setOnboardDomain(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 placeholder-slate-600 outline-none transition"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                      Jira Email Username
+                    </label>
+                    <input
+                      type="email"
+                      placeholder="user@domain.com"
+                      value={onboardEmail}
+                      onChange={(e) => setOnboardEmail(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 placeholder-slate-600 outline-none transition"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                      Atlassian API Security Token
+                    </label>
+                    <a
+                      href="https://id.atlassian.com/manage-profile/security/api-tokens"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] text-indigo-400 hover:text-indigo-300 underline font-medium transition"
+                    >
+                      Create Token
+                    </a>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={onboardShowPassword ? "text" : "password"}
+                      placeholder="ATATT... API token"
+                      value={onboardToken}
+                      onChange={(e) => setOnboardToken(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 placeholder-slate-600 outline-none transition"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setOnboardShowPassword(!onboardShowPassword)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition text-[10px] font-semibold"
+                    >
+                      {onboardShowPassword ? "HIDE" : "SHOW"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-4">
+                <button
+                  type="submit"
+                  disabled={onboardLoading}
+                  className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  {onboardLoading ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Saving and Syncing...
+                    </>
+                  ) : (
+                    "Save & Get Started"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* GLOBAL HEADER BANNER */}
       <header id="app-header" className="border-b border-[#DFE1E6] bg-white sticky top-0 z-40 px-6 py-3 flex items-center justify-between shadow-xs">
         <div id="header-branding" className="flex items-center space-x-3">
@@ -2362,14 +2600,14 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-base font-semibold tracking-tight text-[#091E42] flex items-center gap-1.5">
-              Jira Workspace Manager
+              My google ai studio app
               {authType === "demo" && (
                 <span className="text-[10px] uppercase font-mono bg-[#DEEBFF] text-[#0052CC] border border-[#B3D4FF] px-1.5 py-0.5 rounded font-bold tracking-wider">
                   Demo Sandbox
                 </span>
               )}
             </h1>
-            <p className="text-[11px] text-[#5E6C84]">Full-stack collaborative board optimizer</p>
+            <p className="text-[11px] text-[#5E6C84]">Google AI Studio + Jira Collaborative Optimizer</p>
           </div>
         </div>
 
