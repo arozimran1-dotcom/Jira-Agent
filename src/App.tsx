@@ -116,6 +116,26 @@ function formatSecondsToJiraTime(seconds: number): string {
   return parts.join(" ") || "0m";
 }
 
+function formatErrorMessage(errMsg: string | undefined | null): string {
+  if (!errMsg) return "An unexpected error occurred.";
+  
+  let cleaned = errMsg;
+  // Clean up convex/backend error traces
+  if (cleaned.includes("Uncaught Error:")) {
+    cleaned = cleaned.split("Uncaught Error:")[1].trim();
+  }
+  if (cleaned.includes("at handler")) {
+    cleaned = cleaned.split("at handler")[0].trim();
+  }
+  
+  // Clean up generic server errors
+  if (cleaned.startsWith("[Request ID:")) {
+    cleaned = cleaned.replace(/\[Request ID: [^\]]+\]\s*(Server Error)?/i, "").trim();
+  }
+  
+  return cleaned;
+}
+
 function isDirectConnEqual(a: any, b: any): boolean {
   const normA = a || null;
   const normB = b || null;
@@ -525,7 +545,7 @@ export default function App() {
       setAuthEmail("");
       setAuthPassword("");
     } catch (err: any) {
-      setAuthError(err.message || "Something went wrong.");
+      setAuthError(formatErrorMessage(err.message));
     } finally {
       setAuthLoading(false);
     }
@@ -614,7 +634,7 @@ export default function App() {
       // 4. Reload profiles to ensure frontend is fully in sync
       await fetchProfiles();
     } catch (err: any) {
-      setOnboardError(err.message || "An unexpected error occurred during onboarding configuration.");
+      setOnboardError(formatErrorMessage(err.message));
     } finally {
       setOnboardLoading(false);
     }
