@@ -189,7 +189,7 @@ export default function App() {
 
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
 
-  const [authType, setAuthType] = useState<JIRA_AUTH_TYPE>(activeProfile?.authType || "demo");
+  const [authType, setAuthType] = useState<JIRA_AUTH_TYPE>(activeProfile?.authType || "oauth");
   const [oauthTokens, setOauthTokens] = useState<AtlassianTokens | null>(activeProfile?.oauthTokens || null);
   const [selectedSite, setSelectedSite] = useState<AccessibleSite | null>(activeProfile?.selectedSite || null);
   const [directConn, setDirectConn] = useState<DirectConnection | null>(activeProfile?.directConn || null);
@@ -313,7 +313,7 @@ export default function App() {
       }
     };
     fetchMyself();
-  }, [activeProfileId, authType, directConn, oauthTokens, selectedSite, appUser]);
+  }, [activeProfileId, authType, JSON.stringify(directConn), JSON.stringify(oauthTokens), JSON.stringify(selectedSite), appUser?.hasSetupProfile]);
 
   // --- BACKEND JWT DATABASE SYNC METHODS ---
   const fetchProfiles = async () => {
@@ -395,7 +395,7 @@ export default function App() {
             {
               id: "welcome",
               role: "agent",
-              text: "Hi! I'm Jira-Intelligence, your smart AI Co-Pilot. I can help you effortlessly log your work and find your assigned tasks. Just tell me what you did today, for example: 'Log 2h to my Epic for the presentation', or simply 'I worked on my last task for 30 mins'. I'll handle all the messy matching and prepare the time logs for you!"
+              text: "Hi! I'm My google ai studio app, your smart AI Co-Pilot. I can help you effortlessly log your work and find your assigned tasks. Just tell me what you did today, for example: 'Log 2h to my Epic for the presentation', or simply 'I worked on my last task for 30 mins'. I'll handle all the messy matching and prepare the time logs for you!"
             }
           ],
           activeProfileId: activeProfileId || "default",
@@ -649,7 +649,7 @@ export default function App() {
         setSelectedModelName(activePrf.selectedModelName || "gemini-3.5-flash");
       }
     } else {
-      if (authType !== "demo") setAuthType("demo");
+      if (authType !== "oauth") setAuthType("oauth");
       if (oauthTokens !== null) setOauthTokens(null);
       if (selectedSite !== null) setSelectedSite(null);
       if (directConn !== null) setDirectConn(null);
@@ -670,7 +670,7 @@ export default function App() {
         {
           id: "welcome",
           role: "agent",
-          text: "Hi! I'm Jira-Intelligence, your smart AI Co-Pilot. I can help you effortlessly log your work and find your assigned tasks. Just tell me what you did today, for example: 'Log 2h to my Epic for the presentation', or simply 'I worked on my last task for 30 mins'. I'll handle all the messy matching and prepare the time logs for you!"
+          text: "Hi! I'm My google ai studio app, your smart AI Co-Pilot. I can help you effortlessly log your work and find your assigned tasks. Just tell me what you did today, for example: 'Log 2h to my Epic for the presentation', or simply 'I worked on my last task for 30 mins'. I'll handle all the messy matching and prepare the time logs for you!"
         }
       ],
       activeProfileId: activeProfileId || "default",
@@ -1288,7 +1288,7 @@ export default function App() {
   // --- WORKSPACE LOADER EFFECT ---
   useEffect(() => {
     loadWorkspace();
-  }, [authType, selectedSite, directConn, appUser]);
+  }, [authType, JSON.stringify(selectedSite), JSON.stringify(directConn), appUser?.hasSetupProfile]);
 
   // Keep issue detail updated when issues array updates
   useEffect(() => {
@@ -1925,7 +1925,7 @@ export default function App() {
     if (activeTab === "docs" && docsSubTab === "wiki") {
       fetchConfluenceSpaces();
     }
-  }, [activeTab, docsSubTab, authType, selectedSite, directConn, appUser]);
+  }, [activeTab, docsSubTab, authType, JSON.stringify(selectedSite), JSON.stringify(directConn), appUser?.hasSetupProfile]);
 
   // Load pages when selected space updates
   useEffect(() => {
@@ -2573,17 +2573,15 @@ export default function App() {
                   >
                     {onboardModelProvider === "google" ? (
                       <>
-                        <option value="gemini-3.5-flash">Gemini 3.5 Flash (Recommended)</option>
+                        <option value="gemini-3.5-flash">Gemini 3.5 Flash (Fast/Default)</option>
                         <option value="gemini-3.5-pro">Gemini 3.5 Pro (Reasoning Flagship)</option>
-                        <option value="gemini-3.1-pro">Gemini 3.1 Pro (Stable Flagship)</option>
-                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite (Fast/Lite)</option>
+                        <option value="gemini-3.1-pro">Gemini 3.1 Pro (Legacy Flagship)</option>
                       </>
                     ) : (
                       <>
-                        <option value="gpt-5.5">GPT-5.5 (Flagship Reasoning)</option>
-                        <option value="gpt-5.5-pro">GPT-5.5 Pro (Reasoning Pro Flagship)</option>
-                        <option value="gpt-5.4">GPT-5.4 (Production Mid-tier)</option>
-                        <option value="gpt-5.4-mini">GPT-5.4 Mini (Cost-efficient Mini)</option>
+                        <option value="gpt-5.5">GPT-5.5 (Flagship)</option>
+                        <option value="gpt-5.2">GPT-5.2 (Legacy 2026)</option>
+                        <option value="gpt-4.5">GPT-4.5 (Legacy)</option>
                       </>
                     )}
                   </select>
@@ -2888,17 +2886,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Switch to DEMO Sandbox button */}
-                <button
-                  onClick={() => {
-                    setAuthType("demo");
-                    loadWorkspace();
-                  }}
-                  className="w-full py-3 bg-[#0052CC] hover:bg-[#0747A6] text-white font-medium rounded-lg transition flex items-center justify-center space-x-2 cursor-pointer shadow-xs"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <span>Interactive Sandbox Mode (Demo)</span>
-                </button>
               </div>
 
               {/* Interactive Forms Column */}
@@ -3936,17 +3923,15 @@ export default function App() {
                         >
                           {selectedModelProvider === "google" ? (
                             <>
-                              <option value="gemini-3.5-flash">Gemini 3.5 Flash (Recommended Default)</option>
-                              <option value="gemini-3.5-pro">Gemini 3.5 Pro (Premium Reasoning)</option>
-                              <option value="gemini-3.1-pro">Gemini 3.1 Pro (Stable Flagship)</option>
-                              <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite (Fast/Lite)</option>
+                              <option value="gemini-3.5-flash">Gemini 3.5 Flash (Fast/Default)</option>
+                              <option value="gemini-3.5-pro">Gemini 3.5 Pro (Reasoning Flagship)</option>
+                              <option value="gemini-3.1-pro">Gemini 3.1 Pro (Legacy Flagship)</option>
                             </>
                           ) : (
                             <>
-                              <option value="gpt-5.5">GPT-5.5 (Flagship Reasoning)</option>
-                              <option value="gpt-5.5-pro">GPT-5.5 Pro (Reasoning Pro Flagship)</option>
-                              <option value="gpt-5.4">GPT-5.4 (Production Mid-tier)</option>
-                              <option value="gpt-5.4-mini">GPT-5.4 Mini (Cost-efficient Mini)</option>
+                              <option value="gpt-5.5">GPT-5.5 (Flagship)</option>
+                              <option value="gpt-5.2">GPT-5.2 (Legacy 2026)</option>
+                              <option value="gpt-4.5">GPT-4.5 (Legacy)</option>
                             </>
                           )}
                         </select>
