@@ -2419,7 +2419,7 @@ export default function App() {
         <div className="absolute inset-0 z-0">
           <div className="absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] rounded-full bg-[radial-gradient(circle,rgba(59,130,246,0.15)_0%,transparent_60%)] blur-3xl animate-[pulse_8s_ease-in-out_infinite]" />
           <div className="absolute bottom-[-20%] right-[-10%] w-[60vw] h-[60vw] rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.15)_0%,transparent_60%)] blur-3xl animate-[pulse_10s_ease-in-out_infinite_reverse]" />
-          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
+          <div className="absolute inset-0 bg-white/5 opacity-20 mix-blend-overlay"></div>
         </div>
 
         {/* Auth Glass Card Container */}
@@ -2521,7 +2521,7 @@ export default function App() {
         <div className="absolute inset-0 z-0">
           <div className="absolute top-[-20%] right-[-10%] w-[70vw] h-[70vw] rounded-full bg-[radial-gradient(circle,rgba(59,130,246,0.1)_0%,transparent_60%)] blur-3xl animate-[pulse_10s_ease-in-out_infinite]" />
           <div className="absolute bottom-[-20%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.1)_0%,transparent_60%)] blur-3xl animate-[pulse_12s_ease-in-out_infinite_reverse]" />
-          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
+          <div className="absolute inset-0 bg-white/5 opacity-20 mix-blend-overlay"></div>
         </div>
 
         {/* Setup Glass Card Container */}

@@ -111,6 +111,10 @@ export async function saveProfileForUser(userId: string, profile: any): Promise<
     profileToSave.id = `profile-${crypto.randomUUID()}`;
   }
   
+  // Remove convex internal fields if they exist
+  delete profileToSave._id;
+  delete profileToSave._creationTime;
+  
   // Ensure default structure doesn't break schema expectations
   if (profileToSave.directConn === undefined) {
     profileToSave.directConn = null;
@@ -163,6 +167,10 @@ export async function saveSessionForUser(userId: string, session: any): Promise<
   if (!sessionToSave.id) {
     sessionToSave.id = `session-${crypto.randomUUID()}`;
   }
+
+  // Remove convex internal fields if they exist
+  delete sessionToSave._id;
+  delete sessionToSave._creationTime;
   
   if (!sessionToSave.createdAt) {
     sessionToSave.createdAt = Date.now();
