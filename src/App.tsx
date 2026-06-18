@@ -300,6 +300,13 @@ export default function App() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [currentUserDetails, setCurrentUserDetails] = useState<any>(null);
 
+  // Circuit breaker: stop proxy request floods
+  const proxyCallCountRef = React.useRef(0);
+  const proxyCallWindowTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const proxyCircuitOpenRef = React.useRef(false);
+  // Concurrent workspace load guard
+  const workspaceLoadingRef = React.useRef(false);
+
   // Fetch current user's Atlassian profile to filter worklogs and set conversational context
   useEffect(() => {
     if (authType === "demo") {
@@ -1311,7 +1318,11 @@ export default function App() {
 
   // --- WORKSPACE LOADER EFFECT ---
   useEffect(() => {
-    loadWorkspace();
+    const timer = setTimeout(() => {
+      if (workspaceLoadingRef.current) return;
+      loadWorkspace();
+    }, 300);
+    return () => clearTimeout(timer);
   }, [authType, JSON.stringify(selectedSite), JSON.stringify(directConn), appUser?.hasSetupProfile]);
 
   // Keep issue detail updated when issues array updates
@@ -1589,46 +1600,55 @@ export default function App() {
   };
 
   const loadWorkspace = async () => {
+    if (workspaceLoadingRef.current) return;
+    workspaceLoadingRef.current = true;
     setErrorMessage(null);
-    if (authType === "demo") {
-      setProjects(DEMO_PROJECTS);
-      setSelectedProject(DEMO_PROJECTS[0]);
-      // Initialize demo issues if empty or if stale (containing old issues from other projects)
-      const cachedDemo = localStorage.getItem("jira_demo_issues");
-      const isStale = !cachedDemo || cachedDemo.includes("SLE-") || cachedDemo.includes("PWP-") || cachedDemo.includes("MAR-");
-      if (cachedDemo && !isStale) {
-        setIssues(JSON.parse(cachedDemo));
-      } else {
-        setIssues(INITIAL_DEMO_ISSUES);
-        localStorage.setItem("jira_demo_issues", JSON.stringify(INITIAL_DEMO_ISSUES));
+    try {
+      if (authType === "demo") {
+        setProjects(DEMO_PROJECTS);
+        setSelectedProject(DEMO_PROJECTS[0]);
+        const cachedDemo = localStorage.getItem("jira_demo_issues");
+        const isStale = !cachedDemo || cachedDemo.includes("SLE-") || cachedDemo.includes("PWP-") || cachedDemo.includes("MAR-");
+        if (cachedDemo && !isStale) {
+          setIssues(JSON.parse(cachedDemo));
+        } else {
+          setIssues(INITIAL_DEMO_ISSUES);
+          localStorage.setItem("jira_demo_issues", JSON.stringify(INITIAL_DEMO_ISSUES));
+        }
+        return;
       }
-      return;
-    }
-
-    // Guard: don't load workspace if onboarding setup is not completed yet
-    if (appUser && appUser.hasSetupProfile === false) {
-      return;
-    }
-
-    // Guard: check for basic credentials completeness
-    if (authType === "basic" && (!directConn || !directConn.apiToken)) {
-      return;
-    }
-
-    // Guard: check for oauth credentials completeness
-    if (authType === "oauth" && (!oauthTokens || !selectedSite)) {
-      if (authType === "oauth" && !selectedSite && oauthTokens) {
-        fetchAvailableSites(oauthTokens.access_token);
+      if (appUser && appUser.hasSetupProfile === false) return;
+      if (authType === "basic" && (!directConn || !directConn.apiToken)) return;
+      if (authType === "oauth" && (!oauthTokens || !selectedSite)) {
+        if (!selectedSite && oauthTokens) fetchAvailableSites(oauthTokens.access_token);
+        return;
       }
-      return;
+      await fetchProjects();
+    } finally {
+      workspaceLoadingRef.current = false;
     }
-
-    // Load active real Jira Project list
-    await fetchProjects();
   };
 
   // Real API Calls helper using proxy
   const makeProxyCall = async (endpoint: string, method: string = "GET", body?: any, query?: any) => {
+    // Circuit breaker: trip if more than 20 proxy calls fire within a 5-second window
+    if (proxyCircuitOpenRef.current) {
+      throw new Error("Too many requests detected — a render loop was stopped. Please refresh the page.");
+    }
+    proxyCallCountRef.current += 1;
+    if (proxyCallWindowTimerRef.current === null) {
+      proxyCallWindowTimerRef.current = setTimeout(() => {
+        proxyCallCountRef.current = 0;
+        proxyCallWindowTimerRef.current = null;
+        proxyCircuitOpenRef.current = false;
+      }, 5000);
+    }
+    if (proxyCallCountRef.current > 20) {
+      proxyCircuitOpenRef.current = true;
+      setErrorMessage("Too many requests detected — a render loop was stopped. Refresh the page to continue.");
+      throw new Error("Circuit breaker tripped: too many proxy requests.");
+    }
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "x-jira-auth-type": authType,
