@@ -116,6 +116,41 @@ function formatSecondsToJiraTime(seconds: number): string {
   return parts.join(" ") || "0m";
 }
 
+function isDirectConnEqual(a: any, b: any): boolean {
+  const normA = a || null;
+  const normB = b || null;
+  if (normA === null && normB === null) return true;
+  if (normA === null || normB === null) return false;
+  return (
+    normA.domain === normB.domain &&
+    normA.email === normB.email &&
+    normA.apiToken === normB.apiToken
+  );
+}
+
+function isOauthTokensEqual(a: any, b: any): boolean {
+  const normA = a || null;
+  const normB = b || null;
+  if (normA === null && normB === null) return true;
+  if (normA === null || normB === null) return false;
+  return (
+    normA.access_token === normB.access_token &&
+    normA.refresh_token === normB.refresh_token
+  );
+}
+
+function isSelectedSiteEqual(a: any, b: any): boolean {
+  const normA = a || null;
+  const normB = b || null;
+  if (normA === null && normB === null) return true;
+  if (normA === null || normB === null) return false;
+  return (
+    normA.id === normB.id &&
+    normA.url === normB.url &&
+    normA.name === normB.name
+  );
+}
+
 export default function App() {
   // Session / Storage persistence states
   // JWT authentication state
@@ -479,16 +514,16 @@ export default function App() {
       if (authType !== activePrf.authType) {
         setAuthType(activePrf.authType);
       }
-      if (JSON.stringify(oauthTokens) !== JSON.stringify(activePrf.oauthTokens)) {
+      if (!isOauthTokensEqual(oauthTokens, activePrf.oauthTokens)) {
         setOauthTokens(activePrf.oauthTokens || null);
       }
-      if (JSON.stringify(selectedSite) !== JSON.stringify(activePrf.selectedSite)) {
+      if (!isSelectedSiteEqual(selectedSite, activePrf.selectedSite)) {
         setSelectedSite(activePrf.selectedSite || null);
       }
-      if (JSON.stringify(directConn) !== JSON.stringify(activePrf.directConn)) {
+      if (!isDirectConnEqual(directConn, activePrf.directConn)) {
         setDirectConn(activePrf.directConn || null);
       }
-      if (geminiApiKey !== activePrf.geminiApiKey) {
+      if ((geminiApiKey || null) !== (activePrf.geminiApiKey || null)) {
         setGeminiApiKey(activePrf.geminiApiKey || null);
       }
     } else {
@@ -1041,10 +1076,10 @@ export default function App() {
 
     const hasChanges = 
       authType !== activePrf.authType ||
-      JSON.stringify(directConn) !== JSON.stringify(activePrf.directConn) ||
-      JSON.stringify(oauthTokens) !== JSON.stringify(activePrf.oauthTokens) ||
-      JSON.stringify(selectedSite) !== JSON.stringify(activePrf.selectedSite) ||
-      geminiApiKey !== activePrf.geminiApiKey;
+      !isDirectConnEqual(directConn, activePrf.directConn) ||
+      !isOauthTokensEqual(oauthTokens, activePrf.oauthTokens) ||
+      !isSelectedSiteEqual(selectedSite, activePrf.selectedSite) ||
+      (geminiApiKey || null) !== (activePrf.geminiApiKey || null);
 
     if (!hasChanges) return;
 
