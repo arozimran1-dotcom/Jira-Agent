@@ -188,7 +188,7 @@ export default function App() {
 
   // Onboarding states
   const [onboardDomain, setOnboardDomain] = useState("joblogic.atlassian.net");
-  const [onboardEmail, setOnboardEmail] = useState("arozi@joblogic.com");
+
   const [onboardToken, setOnboardToken] = useState("");
   const [onboardGeminiKey, setOnboardGeminiKey] = useState("");
   const [onboardOpenaiKey, setOnboardOpenaiKey] = useState("");
@@ -558,7 +558,7 @@ export default function App() {
       setOnboardError("Jira domain is required.");
       return;
     }
-    if (!onboardEmail.trim()) {
+    if (!(appUser?.email || "").trim()) {
       setOnboardError("Jira email is required.");
       return;
     }
@@ -591,7 +591,7 @@ export default function App() {
         authType: "basic" as JIRA_AUTH_TYPE,
         directConn: {
           domain: onboardDomain.trim(),
-          email: onboardEmail.trim(),
+          email: (appUser?.email || "").trim(),
           apiToken: onboardToken.trim()
         },
         geminiApiKey: onboardGeminiKey.trim() || null,
@@ -623,7 +623,7 @@ export default function App() {
       setAuthType("basic");
       setDirectConn({
         domain: onboardDomain.trim(),
-        email: onboardEmail.trim(),
+        email: (appUser?.email || "").trim(),
         apiToken: onboardToken.trim()
       });
       setGeminiApiKey(onboardGeminiKey.trim() || null);
@@ -2691,14 +2691,17 @@ export default function App() {
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">Atlassian Email</label>
+                    <div className="flex justify-between items-end">
+                      <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">Atlassian Email</label>
+                      <button type="button" onClick={handleLogout} className="text-[10px] text-zinc-500 hover:text-white transition-colors underline">
+                        Made a mistake? Change email
+                      </button>
+                    </div>
                     <input
                       type="email"
-                      value={onboardEmail}
-                      onChange={(e) => setOnboardEmail(e.target.value)}
-                      placeholder="name@company.com"
-                      required
-                      className="w-full bg-black/40 border border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-xl px-4 py-3.5 text-sm placeholder-zinc-600 outline-none transition-all text-white hover:border-white/20"
+                      value={appUser?.email || ""}
+                      readOnly
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-zinc-400 outline-none cursor-not-allowed opacity-70"
                     />
                   </div>
 
