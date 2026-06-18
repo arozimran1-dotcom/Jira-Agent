@@ -25,6 +25,9 @@ export default defineSchema({
     oauthTokens: v.any(),
     selectedSite: v.any(),
     geminiApiKey: v.union(v.null(), v.string()),
+    openaiApiKey: v.optional(v.union(v.null(), v.string())),
+    selectedModelProvider: v.optional(v.union(v.null(), v.string())),
+    selectedModelName: v.optional(v.union(v.null(), v.string())),
   })
     .index("by_profile_id", ["id"])
     .index("by_userId", ["userId"])

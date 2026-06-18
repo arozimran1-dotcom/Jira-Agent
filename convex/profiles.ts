@@ -29,6 +29,9 @@ export const saveForUser = mutation({
       oauthTokens: v.any(),
       selectedSite: v.any(),
       geminiApiKey: v.union(v.null(), v.string()),
+      openaiApiKey: v.optional(v.union(v.null(), v.string())),
+      selectedModelProvider: v.optional(v.union(v.null(), v.string())),
+      selectedModelName: v.optional(v.union(v.null(), v.string())),
     }),
   },
   handler: async (ctx, args) => {
@@ -47,6 +50,9 @@ export const saveForUser = mutation({
       oauthTokens: profile.oauthTokens,
       selectedSite: profile.selectedSite,
       geminiApiKey: profile.geminiApiKey,
+      openaiApiKey: (profile as any).openaiApiKey !== undefined ? (profile as any).openaiApiKey : null,
+      selectedModelProvider: (profile as any).selectedModelProvider !== undefined ? (profile as any).selectedModelProvider : "google",
+      selectedModelName: (profile as any).selectedModelName !== undefined ? (profile as any).selectedModelName : "gemini-3.5-flash",
     };
 
     if (existing) {

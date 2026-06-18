@@ -121,4 +121,7 @@ export interface UserProfile {
   oauthTokens: AtlassianTokens | null;
   selectedSite: AccessibleSite | null;
   geminiApiKey?: string | null;
+  openaiApiKey?: string | null;
+  selectedModelProvider?: string | null;
+  selectedModelName?: string | null;
 }

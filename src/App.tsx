@@ -171,6 +171,10 @@ export default function App() {
   const [onboardEmail, setOnboardEmail] = useState("arozi@joblogic.com");
   const [onboardToken, setOnboardToken] = useState("");
   const [onboardGeminiKey, setOnboardGeminiKey] = useState("");
+  const [onboardOpenaiKey, setOnboardOpenaiKey] = useState("");
+  const [onboardModelProvider, setOnboardModelProvider] = useState("google");
+  const [onboardModelName, setOnboardModelName] = useState("gemini-3.5-flash");
+  const [onboardShowOpenai, setOnboardShowOpenai] = useState(false);
   const [onboardLoading, setOnboardLoading] = useState(false);
   const [onboardError, setOnboardError] = useState<string | null>(null);
   const [onboardShowPassword, setOnboardShowPassword] = useState(false);
@@ -190,6 +194,9 @@ export default function App() {
   const [selectedSite, setSelectedSite] = useState<AccessibleSite | null>(activeProfile?.selectedSite || null);
   const [directConn, setDirectConn] = useState<DirectConnection | null>(activeProfile?.directConn || null);
   const [geminiApiKey, setGeminiApiKey] = useState<string | null>(activeProfile?.geminiApiKey || null);
+  const [openaiApiKey, setOpenaiApiKey] = useState<string | null>(activeProfile?.openaiApiKey || null);
+  const [selectedModelProvider, setSelectedModelProvider] = useState<string>(activeProfile?.selectedModelProvider || "google");
+  const [selectedModelName, setSelectedModelName] = useState<string>(activeProfile?.selectedModelName || "gemini-3.5-flash");
 
   // Profile manager form inputs
   const [profileFormName, setProfileFormName] = useState("");
@@ -528,8 +535,12 @@ export default function App() {
       setOnboardError("Atlassian API Security Token is required.");
       return;
     }
-    if (!onboardGeminiKey.trim()) {
-      setOnboardError("Gemini API Key is required.");
+    if (onboardModelProvider === "google" && !onboardGeminiKey.trim()) {
+      setOnboardError("Gemini API Key is required for Google Gemini provider.");
+      return;
+    }
+    if (onboardModelProvider === "openai" && !onboardOpenaiKey.trim()) {
+      setOnboardError("OpenAI API Key is required for OpenAI provider.");
       return;
     }
 
@@ -543,7 +554,7 @@ export default function App() {
         throw new Error("No active profile found to configure.");
       }
 
-      // Update the active profile connection details and gemini key
+      // Update the active profile connection details, gemini key, openai key, provider, and model name
       const updatedProfile = {
         ...activePrf,
         authType: "basic" as JIRA_AUTH_TYPE,
@@ -552,7 +563,10 @@ export default function App() {
           email: onboardEmail.trim(),
           apiToken: onboardToken.trim()
         },
-        geminiApiKey: onboardGeminiKey.trim()
+        geminiApiKey: onboardGeminiKey.trim() || null,
+        openaiApiKey: onboardOpenaiKey.trim() || null,
+        selectedModelProvider: onboardModelProvider,
+        selectedModelName: onboardModelName
       };
 
       // Call saveProfileBackend directly
@@ -581,7 +595,10 @@ export default function App() {
         email: onboardEmail.trim(),
         apiToken: onboardToken.trim()
       });
-      setGeminiApiKey(onboardGeminiKey.trim());
+      setGeminiApiKey(onboardGeminiKey.trim() || null);
+      setOpenaiApiKey(onboardOpenaiKey.trim() || null);
+      setSelectedModelProvider(onboardModelProvider);
+      setSelectedModelName(onboardModelName);
 
       // 4. Reload profiles to ensure frontend is fully in sync
       await fetchProfiles();
@@ -611,14 +628,26 @@ export default function App() {
       if ((geminiApiKey || null) !== (activePrf.geminiApiKey || null)) {
         setGeminiApiKey(activePrf.geminiApiKey || null);
       }
+      if ((openaiApiKey || null) !== (activePrf.openaiApiKey || null)) {
+        setOpenaiApiKey(activePrf.openaiApiKey || null);
+      }
+      if ((selectedModelProvider || "google") !== (activePrf.selectedModelProvider || "google")) {
+        setSelectedModelProvider(activePrf.selectedModelProvider || "google");
+      }
+      if ((selectedModelName || "gemini-3.5-flash") !== (activePrf.selectedModelName || "gemini-3.5-flash")) {
+        setSelectedModelName(activePrf.selectedModelName || "gemini-3.5-flash");
+      }
     } else {
       if (authType !== "demo") setAuthType("demo");
       if (oauthTokens !== null) setOauthTokens(null);
       if (selectedSite !== null) setSelectedSite(null);
       if (directConn !== null) setDirectConn(null);
       if (geminiApiKey !== null) setGeminiApiKey(null);
+      if (openaiApiKey !== null) setOpenaiApiKey(null);
+      if (selectedModelProvider !== "google") setSelectedModelProvider("google");
+      if (selectedModelName !== "gemini-3.5-flash") setSelectedModelName("gemini-3.5-flash");
     }
-  }, [activeProfileId, profiles, authType, oauthTokens, selectedSite, directConn, geminiApiKey]);
+  }, [activeProfileId, profiles, authType, oauthTokens, selectedSite, directConn, geminiApiKey, openaiApiKey, selectedModelProvider, selectedModelName]);
 
   // Chat history lifecycle handlers
   const handleCreateNewSession = async () => {
@@ -866,6 +895,9 @@ export default function App() {
           prompt: userText,
           issues: finalIssuesConfig,
           apiKey: geminiApiKey,
+          openaiApiKey: openaiApiKey,
+          provider: selectedModelProvider || "google",
+          model: selectedModelName || "gemini-3.5-flash",
           recentWorklogs,
           authConfig,
           userProfile: currentUserDetails || null
@@ -1150,7 +1182,7 @@ export default function App() {
     }, 1000);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [authType, directConn, oauthTokens, selectedSite, geminiApiKey, activeProfileId, profiles]);
+  }, [authType, directConn, oauthTokens, selectedSite, geminiApiKey, openaiApiKey, selectedModelProvider, selectedModelName, activeProfileId, profiles]);
 
   // Sync active profile connection settings dynamically in memory
   useEffect(() => {
@@ -1164,7 +1196,10 @@ export default function App() {
       !isDirectConnEqual(directConn, activePrf.directConn) ||
       !isOauthTokensEqual(oauthTokens, activePrf.oauthTokens) ||
       !isSelectedSiteEqual(selectedSite, activePrf.selectedSite) ||
-      (geminiApiKey || null) !== (activePrf.geminiApiKey || null);
+      (geminiApiKey || null) !== (activePrf.geminiApiKey || null) ||
+      (openaiApiKey || null) !== (activePrf.openaiApiKey || null) ||
+      (selectedModelProvider || "google") !== (activePrf.selectedModelProvider || "google") ||
+      (selectedModelName || "gemini-3.5-flash") !== (activePrf.selectedModelName || "gemini-3.5-flash");
 
     if (!hasChanges) return;
 
@@ -1176,12 +1211,15 @@ export default function App() {
           directConn,
           oauthTokens,
           selectedSite,
-          geminiApiKey
+          geminiApiKey,
+          openaiApiKey,
+          selectedModelProvider,
+          selectedModelName
         };
       }
       return p;
     }));
-  }, [authType, directConn, oauthTokens, selectedSite, geminiApiKey, activeProfileId, profiles]);
+  }, [authType, directConn, oauthTokens, selectedSite, geminiApiKey, openaiApiKey, selectedModelProvider, selectedModelName, activeProfileId, profiles]);
 
   // Sync chat sessions updates to server with a 1s debounce
   useEffect(() => {
@@ -2462,13 +2500,63 @@ export default function App() {
                   <span>{onboardError}</span>
                 </div>
               )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* AI Model Provider */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                    AI Provider
+                  </label>
+                  <select
+                    value={onboardModelProvider}
+                    onChange={(e) => {
+                      const prov = e.target.value;
+                      setOnboardModelProvider(prov);
+                      setOnboardModelName(prov === "google" ? "gemini-3.5-flash" : "gpt-5.5");
+                    }}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 outline-none transition cursor-pointer"
+                  >
+                    <option value="google">Google Gemini</option>
+                    <option value="openai">OpenAI</option>
+                  </select>
+                </div>
+
+                {/* AI Model Version */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                    AI Model Version
+                  </label>
+                  <select
+                    value={onboardModelName}
+                    onChange={(e) => setOnboardModelName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 outline-none transition cursor-pointer"
+                  >
+                    {onboardModelProvider === "google" ? (
+                      <>
+                        <option value="gemini-3.5-flash">Gemini 3.5 Flash (Recommended)</option>
+                        <option value="gemini-3.5-pro">Gemini 3.5 Pro (Reasoning Flagship)</option>
+                        <option value="gemini-3.1-pro">Gemini 3.1 Pro (Stable Flagship)</option>
+                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite (Fast/Lite)</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="gpt-5.5">GPT-5.5 (Flagship Reasoning)</option>
+                        <option value="gpt-5.5-pro">GPT-5.5 Pro (Reasoning Pro Flagship)</option>
+                        <option value="gpt-5.4">GPT-5.4 (Production Mid-tier)</option>
+                        <option value="gpt-5.4-mini">GPT-5.4 Mini (Cost-efficient Mini)</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
 
               {/* Gemini API Key */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                    Gemini API Key
+                    Google Gemini API Key
                   </label>
                   <a
                     href="https://aistudio.google.com/app/apikey"
@@ -2476,17 +2564,16 @@ export default function App() {
                     rel="noreferrer"
                     className="text-[10px] text-indigo-400 hover:text-indigo-300 underline font-medium transition"
                   >
-                    Get API Key
+                    Get Gemini Key
                   </a>
                 </div>
                 <div className="relative">
                   <input
                     type={onboardShowGemini ? "text" : "password"}
-                    placeholder="Enter your Gemini API key (AI Studio)"
+                    placeholder="Enter Google Gemini API key (optional if using OpenAI)"
                     value={onboardGeminiKey}
                     onChange={(e) => setOnboardGeminiKey(e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 placeholder-slate-600 outline-none transition"
-                    required
                   />
                   <button
                     type="button"
@@ -2494,6 +2581,40 @@ export default function App() {
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition text-[10px] font-semibold"
                   >
                     {onboardShowGemini ? "HIDE" : "SHOW"}
+                  </button>
+                </div>
+              </div>
+
+              {/* OpenAI API Key */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                    OpenAI API Key
+                  </label>
+                  <a
+                    href="https://platform.openai.com/api-keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] text-indigo-400 hover:text-indigo-300 underline font-medium transition"
+                  >
+                    Get OpenAI Key
+                  </a>
+                </div>
+                <div className="relative">
+                  <input
+                    type={onboardShowOpenai ? "text" : "password"}
+                    placeholder="Enter OpenAI API key (optional if using Gemini)"
+                    value={onboardOpenaiKey}
+                    onChange={(e) => setOnboardOpenaiKey(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 placeholder-slate-600 outline-none transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setOnboardShowOpenai(!onboardShowOpenai)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition text-[10px] font-semibold"
+                  >
+                    {onboardShowOpenai ? "HIDE" : "SHOW"}
                   </button>
                 </div>
               </div>
@@ -3739,26 +3860,90 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Active Profile Gemini Key Setting */}
-                  <div className="bg-[#FAFBFC] border border-[#DFE1E6] rounded-xl p-5 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
-                    <div className="flex-1 space-y-1">
-                      <label className="text-xs font-bold text-[#091E42] flex items-center gap-1.5 uppercase tracking-wide">
-                        <Sparkles className="w-4 h-4 text-purple-500" />
-                        Active Profile AI Key
-                      </label>
-                      <p className="text-[10px] text-[#5E6C84]">
-                        Set a custom Gemini API Key for the currently active profile. If empty, the server's default key is used.
-                      </p>
+                  {/* Active Profile AI Settings Configuration Panel */}
+                  <div className="bg-[#FAFBFC] border border-[#DFE1E6] rounded-xl p-5 shadow-xs space-y-4">
+                    <div className="flex items-center gap-1.5 pb-2 border-b border-slate-200">
+                      <Sparkles className="w-4 h-4 text-indigo-500" />
+                      <h4 className="text-xs font-bold text-[#091E42] uppercase tracking-wide">
+                        Active Profile AI Settings
+                      </h4>
                     </div>
-                    <div className="flex-1 w-full relative">
-                      <KeyRound className="w-4 h-4 text-[#5E6C84] absolute left-3 top-1/2 transform -translate-y-1/2" />
-                      <input
-                        type="password"
-                        placeholder="AIzaSy..."
-                        value={geminiApiKey || ""}
-                        onChange={(e) => setGeminiApiKey(e.target.value || null)}
-                        className="w-full pl-9 pr-3 py-2.5 bg-white border border-[#DFE1E6] focus:border-purple-500 focus:ring-1 focus:ring-purple-500 rounded-lg text-xs text-[#091E42] outline-none transition shadow-inner"
-                      />
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Provider selection */}
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-semibold text-[#42526E]">AI Model Provider</label>
+                        <select
+                          value={selectedModelProvider || "google"}
+                          onChange={(e) => {
+                            const prov = e.target.value;
+                            setSelectedModelProvider(prov);
+                            setSelectedModelName(prov === "google" ? "gemini-3.5-flash" : "gpt-5.5");
+                          }}
+                          className="w-full px-3 py-2 bg-white hover:bg-slate-50 border border-[#DFE1E6] focus:border-[#0052CC] rounded-lg text-xs text-[#091E42] outline-none transition cursor-pointer"
+                        >
+                          <option value="google">Google Gemini</option>
+                          <option value="openai">OpenAI</option>
+                        </select>
+                      </div>
+
+                      {/* Model selection */}
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-semibold text-[#42526E]">AI Model Version</label>
+                        <select
+                          value={selectedModelName || (selectedModelProvider === "google" ? "gemini-3.5-flash" : "gpt-5.5")}
+                          onChange={(e) => setSelectedModelName(e.target.value)}
+                          className="w-full px-3 py-2 bg-white hover:bg-slate-50 border border-[#DFE1E6] focus:border-[#0052CC] rounded-lg text-xs text-[#091E42] outline-none transition cursor-pointer"
+                        >
+                          {selectedModelProvider === "google" ? (
+                            <>
+                              <option value="gemini-3.5-flash">Gemini 3.5 Flash (Recommended Default)</option>
+                              <option value="gemini-3.5-pro">Gemini 3.5 Pro (Premium Reasoning)</option>
+                              <option value="gemini-3.1-pro">Gemini 3.1 Pro (Stable Flagship)</option>
+                              <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite (Fast/Lite)</option>
+                            </>
+                          ) : (
+                            <>
+                              <option value="gpt-5.5">GPT-5.5 (Flagship Reasoning)</option>
+                              <option value="gpt-5.5-pro">GPT-5.5 Pro (Reasoning Pro Flagship)</option>
+                              <option value="gpt-5.4">GPT-5.4 (Production Mid-tier)</option>
+                              <option value="gpt-5.4-mini">GPT-5.4 Mini (Cost-efficient Mini)</option>
+                            </>
+                          )}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Google key */}
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-semibold text-[#42526E]">Google Gemini API Key</label>
+                        <div className="relative">
+                          <KeyRound className="w-4 h-4 text-[#5E6C84] absolute left-3 top-1/2 transform -translate-y-1/2" />
+                          <input
+                            type="password"
+                            placeholder="AIzaSy... (empty to use server default)"
+                            value={geminiApiKey || ""}
+                            onChange={(e) => setGeminiApiKey(e.target.value || null)}
+                            className="w-full pl-9 pr-3 py-2 bg-white border border-[#DFE1E6] focus:border-[#0052CC] rounded-lg text-xs text-[#091E42] outline-none transition shadow-2xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* OpenAI key */}
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-semibold text-[#42526E]">OpenAI API Key</label>
+                        <div className="relative">
+                          <KeyRound className="w-4 h-4 text-[#5E6C84] absolute left-3 top-1/2 transform -translate-y-1/2" />
+                          <input
+                            type="password"
+                            placeholder="sk-... (empty to use server default)"
+                            value={openaiApiKey || ""}
+                            onChange={(e) => setOpenaiApiKey(e.target.value || null)}
+                            className="w-full pl-9 pr-3 py-2 bg-white border border-[#DFE1E6] focus:border-[#0052CC] rounded-lg text-xs text-[#091E42] outline-none transition shadow-2xs"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
 

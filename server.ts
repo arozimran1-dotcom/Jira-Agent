@@ -493,184 +493,322 @@ app.post("/api/jira/proxy", requireAuth, async (req, res) => {
 
 // AI Agent Endpoint
 app.post("/api/gemini/agent", requireAuth, async (req, res) => {
-  const { prompt, issues, apiKey: clientApiKey, recentWorklogs, authConfig, userProfile } = req.body;
+  const { 
+    prompt, 
+    issues, 
+    apiKey: clientApiKey, 
+    recentWorklogs, 
+    authConfig, 
+    userProfile,
+    provider = "google",
+    model = "gemini-3.5-flash",
+    openaiApiKey: clientOpenaiApiKey
+  } = req.body;
+
   if (!prompt) {
     return res.status(400).json({ error: "prompt is required" });
   }
 
-  // Use client-side Gemini key if provided, else server-side
-  const apiKey = clientApiKey || process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return res.status(400).json({
-      error: "Gemini API Key is missing. Please configure it in your User Profile or define GEMINI_API_KEY on the server."
-    });
-  }
+  // Helper to extract plain text from ADF comment structure
+  const extractTextFromADF = (comment: any): string => {
+    if (!comment) return "";
+    if (typeof comment === "string") return comment;
+    if (comment.text) return comment.text;
+    if (Array.isArray(comment.content)) {
+      return comment.content.map(extractTextFromADF).join(" ");
+    }
+    if (comment.content) {
+      return extractTextFromADF(comment.content);
+    }
+    return "";
+  };
 
-  try {
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build"
+  const issuesContext = (issues || []).map((issue: any) => {
+    let lastWorklogComment = "";
+    
+    // Extract latest worklog comment
+    const worklogs = issue.fields?.worklog?.worklogs;
+    if (Array.isArray(worklogs) && worklogs.length > 0) {
+      const sorted = [...worklogs].sort((a: any, b: any) => {
+        return new Date(b.created || 0).getTime() - new Date(a.created || 0).getTime();
+      });
+      lastWorklogComment = extractTextFromADF(sorted[0]?.comment);
+    } else if (issue.fields?.worklog_fallback) {
+      lastWorklogComment = issue.fields.worklog_fallback;
+    }
+
+    return {
+      key: issue.key || issue.id,
+      summary: issue.fields?.summary || "",
+      description: issue.fields?.description || "",
+      status: issue.fields?.status?.name || "",
+      issuetype: issue.fields?.issuetype?.name || "",
+      lastWorklogComment: lastWorklogComment
+    };
+  });
+
+  const systemInstruction = "You are Jira-Intelligence, a friendly, conversational, and highly capable AI Assistant for Atlassian Jira, specialized in time-tracking and workflow logging. " +
+    "Your primary role is to act as a natural conversational partner. When users greet you, ask general questions, or chat, respond warmly and naturally as an AI assistant. " +
+    "When users ask you to log time or show what was logged, parse their intent into structured Jira time logs in the `proposedLogs` array, and write a natural explanation. " +
+    "Follow these guidelines:\n" +
+    "1. Match issues carefully. Call the `searchJiraIssues` tool with JQL if you need to dynamically find issues.\n" +
+    "2. Only reference work logs that correspond to the 'Current User' defined in the context. Do not confuse work logs written by other users as work logged by the current user.\n" +
+    "3. Contextual understanding: If the user says 'last task', refer to the 'User's Recent Worklogs' array (which are pre-filtered to the current user) to identify which issue they most recently logged time against.\n" +
+    "4. Duration must be formatted as normal Jira time tracking patterns.\n" +
+    "5. Date extraction: Determine absolute Date based on today's context. Provide 'started' field in ISO 8601 format, but always set the time to 12:00:00.000+0000 (e.g. `YYYY-MM-DDT12:00:00.000+0000`) as the exact time of day is not required in Jira.\n" +
+    "6. Status confidence: Use 'high' confidence when an issue key matches perfectly, 'medium' for semantic matches, and 'low' for fallbacks.\n" +
+    "7. References: At the end of every response, you MUST append a '### References' section. List the JQL queries executed, issue keys analyzed, or user worklogs read, showing dates and authors, so the user knows exactly what source data was queried.\n" +
+    "8. Spelling Correction: Scan the user's comments for spelling mistakes (e.g., 'Discoussin' -> 'Discussion', 'yestedays' -> 'yesterday'). In the prepared log comment, use the corrected spelling. Highlight this correction to the user in your explanation.\n" +
+    "9. Smart Clarification Questionnaire: If there is ambiguity (e.g. multiple matching issues, unclear duration, or when guessing the task using a 'medium' or 'low' confidence match), do NOT immediately propose logs (leave `proposedLogs` empty). Instead, present a friendly set of clarification questions or choices in your explanation. Once the user clarifies, proceed to propose the logs.\n" +
+    "10. Output formatting: You MUST return a valid JSON object matching the schema:\n" +
+    "{\n" +
+    "  \"explanation\": \"friendly text message answering user\",\n" +
+    "  \"proposedLogs\": [\n" +
+    "    {\n" +
+    "      \"issueKey\": \"PR-101\",\n" +
+    "      \"issueSummary\": \"Example Task\",\n" +
+    "      \"timeSpent\": \"2h 30m\",\n" +
+    "      \"comment\": \"Corrected spelling comment text\",\n" +
+    "      \"started\": \"YYYY-MM-DDT12:00:00.000+0000\",\n" +
+    "      \"confidence\": \"high\"\n" +
+    "    }\n" +
+    "  ]\n" +
+    "}";
+
+  const messageContents = `Current User: ${userProfile ? JSON.stringify(userProfile) : "Unknown User"}\n\nUser time-tracking prompt: "${prompt}"\n\nUser's Recent Worklogs across all issues:\n${JSON.stringify(recentWorklogs || [], null, 2)}\n\nAvailable Jira Issues/Subtasks in project:\n${JSON.stringify(issuesContext, null, 2)}`;
+
+  if (provider === "openai") {
+    const openaiApiKey = clientOpenaiApiKey || process.env.OPENAI_API_KEY;
+    if (!openaiApiKey) {
+      return res.status(400).json({
+        error: "OpenAI API Key is missing. Please configure it in your User Profile or define OPENAI_API_KEY on the server."
+      });
+    }
+
+    try {
+      const messages: any[] = [
+        { role: "system", content: systemInstruction },
+        { role: "user", content: messageContents }
+      ];
+
+      let completed = false;
+      let responseJson: any = null;
+
+      while (!completed) {
+        const apiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${openaiApiKey}`
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: messages,
+            tools: [
+              {
+                type: "function",
+                function: {
+                  name: "searchJiraIssues",
+                  description: "Execute a Jira JQL search to find issues dynamically. E.g., `assignee = currentUser() AND issuetype = Epic`. Use this when you need to find issues that the user is talking about.",
+                  parameters: {
+                    type: "object",
+                    properties: {
+                      jql: { type: "string", description: "The JQL query string." }
+                    },
+                    required: ["jql"]
+                  }
+                }
+              }
+            ],
+            response_format: { type: "json_object" }
+          })
+        });
+
+        if (!apiResponse.ok) {
+          const errData = await apiResponse.json().catch(() => ({}));
+          throw new Error(errData.error?.message || `OpenAI API returned status ${apiResponse.status}`);
+        }
+
+        const resData = await apiResponse.json();
+        const choice = resData.choices?.[0];
+        if (!choice) {
+          throw new Error("Empty response from OpenAI");
+        }
+
+        const message = choice.message;
+        
+        if (message.tool_calls && message.tool_calls.length > 0) {
+          messages.push(message);
+
+          for (const call of message.tool_calls) {
+            if (call.function.name === "searchJiraIssues" && authConfig && authConfig.authType !== "demo") {
+              let jql = "";
+              try {
+                const args = JSON.parse(call.function.arguments);
+                jql = args.jql;
+              } catch (e) {
+                console.error("Failed to parse tool arguments:", call.function.arguments);
+              }
+
+              console.log("AI Agent (OpenAI) executing JQL Search:", jql);
+              let searchRes: any;
+              try {
+                const results = await makeInternalJiraRequest("search", "GET", null, { jql, maxResults: 15, fields: "summary,description,status,issuetype" }, authConfig);
+                searchRes = results.data;
+              } catch (e: any) {
+                console.error("Function Call Error:", e.message);
+                searchRes = { error: e.message };
+              }
+
+              messages.push({
+                role: "tool",
+                tool_call_id: call.id,
+                name: call.function.name,
+                content: JSON.stringify(searchRes)
+              });
+            } else {
+              messages.push({
+                role: "tool",
+                tool_call_id: call.id,
+                name: call.function.name,
+                content: JSON.stringify({ error: "Cannot search Jira because auth credentials were not provided or in demo mode." })
+              });
+            }
+          }
+        } else {
+          completed = true;
+          try {
+            responseJson = JSON.parse(message.content || "{}");
+          } catch (err) {
+            throw new Error("OpenAI did not return valid JSON: " + message.content);
+          }
         }
       }
-    });
 
-    // Helper to extract plain text from ADF comment structure
-    const extractTextFromADF = (comment: any): string => {
-      if (!comment) return "";
-      if (typeof comment === "string") return comment;
-      if (comment.text) return comment.text;
-      if (Array.isArray(comment.content)) {
-        return comment.content.map(extractTextFromADF).join(" ");
-      }
-      if (comment.content) {
-        return extractTextFromADF(comment.content);
-      }
-      return "";
-    };
+      res.json(responseJson);
+    } catch (error: any) {
+      console.error("OpenAI Agent Proxy Error:", error);
+      res.status(500).json({ error: error.message || "Failed to query Jira OpenAI agent" });
+    }
 
-    const issuesContext = (issues || []).map((issue: any) => {
-      let lastWorklogComment = "";
-      
-      // Extract latest worklog comment
-      const worklogs = issue.fields?.worklog?.worklogs;
-      if (Array.isArray(worklogs) && worklogs.length > 0) {
-        const sorted = [...worklogs].sort((a: any, b: any) => {
-          return new Date(b.created || 0).getTime() - new Date(a.created || 0).getTime();
-        });
-        lastWorklogComment = extractTextFromADF(sorted[0]?.comment);
-      } else if (issue.fields?.worklog_fallback) {
-        lastWorklogComment = issue.fields.worklog_fallback;
-      }
+  } else {
+    // Google Gemini Flow
+    const apiKey = clientApiKey || process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(400).json({
+        error: "Gemini API Key is missing. Please configure it in your User Profile or define GEMINI_API_KEY on the server."
+      });
+    }
 
-      return {
-        key: issue.key || issue.id,
-        summary: issue.fields?.summary || "",
-        description: issue.fields?.description || "",
-        status: issue.fields?.status?.name || "",
-        issuetype: issue.fields?.issuetype?.name || "",
-        lastWorklogComment: lastWorklogComment
-      };
-    });
+    try {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build"
+          }
+        }
+      });
 
-    const systemInstruction = "You are Jira-Intelligence, a friendly, conversational, and highly capable AI Assistant for Atlassian Jira, specialized in time-tracking and workflow logging. " +
-      "Your primary role is to act as a natural conversational partner. When users greet you, ask general questions, or chat, respond warmly and naturally as an AI assistant. " +
-      "When users ask you to log time or show what was logged, parse their intent into structured Jira time logs in the `proposedLogs` array, and write a natural explanation. " +
-      "Follow these guidelines:\n" +
-      "1. Match issues carefully. Call the `searchJiraIssues` tool with JQL if you need to dynamically find issues.\n" +
-      "2. Only reference work logs that correspond to the 'Current User' defined in the context. Do not confuse work logs written by other users as work logged by the current user.\n" +
-      "3. Contextual understanding: If the user says 'last task', refer to the 'User's Recent Worklogs' array (which are pre-filtered to the current user) to identify which issue they most recently logged time against.\n" +
-      "4. Duration must be formatted as normal Jira time tracking patterns.\n" +
-      "5. Date extraction: Determine absolute Date based on today's context. Provide 'started' field in ISO 8601 format, but always set the time to 12:00:00.000+0000 (e.g. `YYYY-MM-DDT12:00:00.000+0000`) as the exact time of day is not required in Jira.\n" +
-      "6. Status confidence: Use 'high' confidence when an issue key matches perfectly, 'medium' for semantic matches, and 'low' for fallbacks.\n" +
-      "7. References: At the end of every response, you MUST append a '### References' section. List the JQL queries executed, issue keys analyzed, or user worklogs read, showing dates and authors, so the user knows exactly what source data was queried.\n" +
-      "8. Spelling Correction: Scan the user's comments for spelling mistakes (e.g., 'Discoussin' -> 'Discussion', 'yestedays' -> 'yesterday'). In the prepared log comment, use the corrected spelling. Highlight this correction to the user in your explanation.\n" +
-      "9. Smart Clarification Questionnaire: If there is ambiguity (e.g. multiple matching issues, unclear duration, or when guessing the task using a 'medium' or 'low' confidence match), do NOT immediately propose logs (leave `proposedLogs` empty). Instead, present a friendly set of clarification questions or choices in your explanation. Once the user clarifies, proceed to propose the logs.";
-
-    const chat = ai.chats.create({
-      model: "gemini-3.5-flash",
-      config: {
-        systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            explanation: {
-              type: Type.STRING,
-              description: "A natural, friendly, conversational reply to the user. E.g., 'Hi! How can I help you today?' or 'I have prepared your 2h log for PR-698. Let me know if you want to proceed!'"
+      const chat = ai.chats.create({
+        model: model, // Dynamically use the selected model
+        config: {
+          systemInstruction,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              explanation: {
+                type: Type.STRING,
+                description: "A natural, friendly, conversational reply to the user. E.g., 'Hi! How can I help you today?' or 'I have prepared your 2h log for PR-698. Let me know if you want to proceed!'"
+              },
+              proposedLogs: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    issueKey: {
+                      type: Type.STRING,
+                      description: "The matched issue key (e.g. APP-101) or fallback."
+                    },
+                    issueSummary: {
+                      type: Type.STRING,
+                      description: "The summary/title of the matched issue."
+                    },
+                    timeSpent: {
+                      type: Type.STRING,
+                      description: "Jira formatted duration (e.g., '2h 15m' or '4h')."
+                    },
+                    comment: {
+                      type: Type.STRING,
+                      description: "Jira worklog comment explaining the work done."
+                    },
+                    started: {
+                      type: Type.STRING,
+                      description: "The absolute date and time the work was started, based on the user's prompt. Must be ISO 8601 format like YYYY-MM-DDThh:mm:ss.000+0000. If unspecified, use current date/time."
+                    },
+                    confidence: {
+                      type: Type.STRING,
+                      description: "Confidence status of issue matching: 'high', 'medium', or 'low'."
+                    }
+                  },
+                  required: ["issueKey", "issueSummary", "timeSpent", "comment", "started", "confidence"]
+                }
+              }
             },
-            proposedLogs: {
-              type: Type.ARRAY,
-              items: {
+            required: ["explanation", "proposedLogs"]
+          },
+          tools: [{
+            functionDeclarations: [{
+              name: "searchJiraIssues",
+              description: "Execute a Jira JQL search to find issues dynamically. E.g., `assignee = currentUser() AND issuetype = Epic`. Use this when you need to find issues that the user is talking about.",
+              parameters: {
                 type: Type.OBJECT,
                 properties: {
-                  issueKey: {
-                    type: Type.STRING,
-                    description: "The matched issue key (e.g. APP-101) or fallback."
-                  },
-                  issueSummary: {
-                    type: Type.STRING,
-                    description: "The summary/title of the matched issue."
-                  },
-                  timeSpent: {
-                    type: Type.STRING,
-                    description: "Jira formatted duration (e.g., '2h 15m' or '4h')."
-                  },
-                  comment: {
-                    type: Type.STRING,
-                    description: "Jira worklog comment explaining the work done."
-                  },
-                  started: {
-                    type: Type.STRING,
-                    description: "The absolute date and time the work was started, based on the user's prompt. Must be ISO 8601 format like YYYY-MM-DDThh:mm:ss.000+0000. If unspecified, use current date/time."
-                  },
-                  confidence: {
-                    type: Type.STRING,
-                    description: "Confidence status of issue matching: 'high', 'medium', or 'low'."
-                  }
+                  jql: { type: Type.STRING, description: "The JQL query string." }
                 },
-                required: ["issueKey", "issueSummary", "timeSpent", "comment", "started", "confidence"]
+                required: ["jql"]
               }
-            }
-          },
-          required: ["explanation", "proposedLogs"]
-        },
-        tools: [{
-          functionDeclarations: [{
-            name: "searchJiraIssues",
-            description: "Execute a Jira JQL search to find issues dynamically. E.g., `assignee = currentUser() AND issuetype = Epic`. Use this when you need to find issues that the user is talking about.",
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                jql: { type: Type.STRING, description: "The JQL query string." }
-              },
-              required: ["jql"]
-            }
+            }]
           }]
-        }]
-      }
-    });
+        }
+      });
 
-    let messageContents = `Current User: ${userProfile ? JSON.stringify(userProfile) : "Unknown User"}\n\nUser time-tracking prompt: "${prompt}"\n\nUser's Recent Worklogs across all issues:\n${JSON.stringify(recentWorklogs || [], null, 2)}\n\nAvailable Jira Issues/Subtasks in project:\n${JSON.stringify(issuesContext, null, 2)}`;
-    
-    let response = await chat.sendMessage({ message: messageContents });
+      let response = await chat.sendMessage({ message: messageContents });
 
-    // Process function calls if the AI decides it needs to search
-    while (response.functionCalls && response.functionCalls.length > 0) {
-      const call = response.functionCalls[0];
-      if (call.name === "searchJiraIssues" && authConfig && authConfig.authType !== "demo") {
-        const jql = (call.args as any).jql;
-        console.log("AI Agent executing JQL Search:", jql);
-        try {
-          const searchRes = await makeInternalJiraRequest("search", "GET", null, { jql, maxResults: 15, fields: "summary,description,status,issuetype" }, authConfig);
-          // Send result back to AI
+      while (response.functionCalls && response.functionCalls.length > 0) {
+        const call = response.functionCalls[0];
+        if (call.name === "searchJiraIssues" && authConfig && authConfig.authType !== "demo") {
+          const jql = (call.args as any).jql;
+          console.log("AI Agent executing JQL Search:", jql);
+          try {
+            const searchRes = await makeInternalJiraRequest("search", "GET", null, { jql, maxResults: 15, fields: "summary,description,status,issuetype" }, authConfig);
+            response = await chat.sendMessage({ message: [{
+              functionResponse: { name: call.name, response: searchRes.data }
+            }] });
+          } catch (e: any) {
+            console.error("Function Call Error:", e.message);
+            response = await chat.sendMessage({ message: [{
+              functionResponse: { name: call.name, response: { error: e.message } }
+            }] });
+          }
+        } else {
           response = await chat.sendMessage({ message: [{
-            functionResponse: { name: call.name, response: searchRes.data }
-          }] });
-        } catch (e: any) {
-          console.error("Function Call Error:", e.message);
-          response = await chat.sendMessage({ message: [{
-            functionResponse: { name: call.name, response: { error: e.message } }
+            functionResponse: { name: call.name, response: { error: "Cannot search Jira because auth credentials were not provided or in demo mode." } }
           }] });
         }
-      } else {
-        // If authConfig is missing or demo, tell AI it can't search
-        response = await chat.sendMessage({ message: [{
-          functionResponse: { name: call.name, response: { error: "Cannot search Jira because auth credentials were not provided or in demo mode." } }
-        }] });
       }
-    }
 
-    const dataText = response.text;
-    if (!dataText) {
-      throw new Error("Empty response from AI engine");
-    }
+      const dataText = response.text;
+      if (!dataText) {
+        throw new Error("Empty response from AI engine");
+      }
 
-    res.json(JSON.parse(dataText));
-  } catch (error: any) {
-    console.error("AI Agent Proxy Error:", error);
-    res.status(500).json({ error: error.message || "Failed to query Jira AI agent" });
+      res.json(JSON.parse(dataText));
+    } catch (error: any) {
+      console.error("AI Agent Proxy Error:", error);
+      res.status(500).json({ error: error.message || "Failed to query Jira AI agent" });
+    }
   }
 });
 
