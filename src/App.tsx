@@ -159,7 +159,7 @@ export default function App() {
   });
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
-  const [authScreenMode, setAuthScreenMode] = useState<"login" | "register">("login");
+  const [authScreenMode, setAuthScreenMode] = useState<"login" | "register">("register");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -395,7 +395,7 @@ export default function App() {
             {
               id: "welcome",
               role: "agent",
-              text: "Hi! I'm My google ai studio app, your smart AI Co-Pilot. I can help you effortlessly log your work and find your assigned tasks. Just tell me what you did today, for example: 'Log 2h to my Epic for the presentation', or simply 'I worked on my last task for 30 mins'. I'll handle all the messy matching and prepare the time logs for you!"
+              text: "Hi! I'm Jira Time Log Agent, your smart AI Co-Pilot. I can help you effortlessly log your work and find your assigned tasks. Just tell me what you did today, for example: 'Log 2h to my Epic for the presentation', or simply 'I worked on my last task for 30 mins'. I'll handle all the messy matching and prepare the time logs for you!"
             }
           ],
           activeProfileId: activeProfileId || "default",
@@ -670,7 +670,7 @@ export default function App() {
         {
           id: "welcome",
           role: "agent",
-          text: "Hi! I'm My google ai studio app, your smart AI Co-Pilot. I can help you effortlessly log your work and find your assigned tasks. Just tell me what you did today, for example: 'Log 2h to my Epic for the presentation', or simply 'I worked on my last task for 30 mins'. I'll handle all the messy matching and prepare the time logs for you!"
+          text: "Hi! I'm Jira Time Log Agent, your smart AI Co-Pilot. I can help you effortlessly log your work and find your assigned tasks. Just tell me what you did today, for example: 'Log 2h to my Epic for the presentation', or simply 'I worked on my last task for 30 mins'. I'll handle all the messy matching and prepare the time logs for you!"
         }
       ],
       activeProfileId: activeProfileId || "default",
@@ -2414,43 +2414,43 @@ export default function App() {
 
   if (!jwtToken) {
     return (
-      <div id="auth-root" className="min-h-screen w-full flex items-center justify-center bg-slate-950 font-sans text-white p-6 relative overflow-hidden select-none">
+      <div id="auth-root" className="min-h-screen w-full flex items-center justify-center bg-[#09090b] font-sans text-white p-6 relative overflow-hidden select-none">
         {/* Animated Background Mesh */}
         <div className="absolute inset-0 z-0">
-          <div className="absolute -top-40 -left-40 w-96 h-96 bg-indigo-600/30 rounded-full blur-[100px] animate-pulse duration-4000" />
-          <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-blue-600/30 rounded-full blur-[100px] animate-pulse duration-6000" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-slate-900/60 rounded-full blur-[80px]" />
+          <div className="absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] rounded-full bg-[radial-gradient(circle,rgba(59,130,246,0.15)_0%,transparent_60%)] blur-3xl animate-[pulse_8s_ease-in-out_infinite]" />
+          <div className="absolute bottom-[-20%] right-[-10%] w-[60vw] h-[60vw] rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.15)_0%,transparent_60%)] blur-3xl animate-[pulse_10s_ease-in-out_infinite_reverse]" />
+          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
         </div>
 
         {/* Auth Glass Card Container */}
-        <div className="relative z-10 w-full max-w-md bg-slate-900/85 backdrop-blur-xl border border-slate-800 rounded-2xl shadow-2xl p-8 space-y-6 transform transition-all duration-300">
+        <div className="relative z-10 w-full max-w-md bg-white/[0.03] backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] p-10 space-y-8 transform transition-all duration-500 hover:border-white/20">
           {/* Header Branding */}
-          <div className="text-center space-y-2">
-            <div className="mx-auto w-12 h-12 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <Activity className="w-6 h-6 text-white" />
+          <div className="text-center space-y-3">
+            <div className="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30 ring-1 ring-white/20">
+              <Activity className="w-7 h-7 text-white" />
             </div>
-            <h2 className="text-2xl font-bold tracking-tight text-white">
-              {authScreenMode === "login" ? "Welcome back" : "Create an account"}
+            <h2 className="text-3xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70">
+              {authScreenMode === "login" ? "Welcome back" : "Create Account"}
             </h2>
-            <p className="text-xs text-slate-400">
+            <p className="text-sm text-zinc-400 font-medium">
               {authScreenMode === "login"
-                ? "Sign in to access your multi-tenant Jira logs dashboard"
-                : "Register a secure workspace account to log work"}
+                ? "Sign in to access your multi-tenant Jira logs"
+                : "Register a secure workspace to log work effortlessly"}
             </p>
           </div>
 
           {/* Form */}
-          <form onSubmit={handleAuthSubmit} className="space-y-4">
+          <form onSubmit={handleAuthSubmit} className="space-y-5">
             {authError && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs text-rose-400 font-medium flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+              <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-400 font-medium flex items-start gap-3 backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 mt-1.5" />
                 <span>{authError}</span>
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Email Address</label>
-              <div className="relative">
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">Email Address</label>
+              <div className="relative group">
                 <input
                   type="email"
                   value={authEmail}
@@ -2458,14 +2458,14 @@ export default function App() {
                   placeholder="name@company.com"
                   disabled={authLoading}
                   required
-                  className="w-full bg-slate-950/70 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-lg px-4 py-2.5 text-sm placeholder-slate-500 outline-none transition text-white"
+                  className="w-full bg-black/40 border border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-xl px-5 py-3.5 text-sm placeholder-zinc-600 outline-none transition-all text-white group-hover:border-white/20"
                 />
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Password</label>
-              <div className="relative">
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">Password</label>
+              <div className="relative group">
                 <input
                   type="password"
                   value={authPassword}
@@ -2473,7 +2473,7 @@ export default function App() {
                   placeholder="••••••••"
                   disabled={authLoading}
                   required
-                  className="w-full bg-slate-950/70 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-lg px-4 py-2.5 text-sm placeholder-slate-500 outline-none transition text-white"
+                  className="w-full bg-black/40 border border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-xl px-5 py-3.5 text-sm placeholder-zinc-600 outline-none transition-all text-white group-hover:border-white/20"
                 />
               </div>
             </div>
@@ -2481,32 +2481,32 @@ export default function App() {
             <button
               type="submit"
               disabled={authLoading}
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800/50 disabled:text-indigo-300 font-semibold rounded-lg transition flex items-center justify-center gap-2 text-sm cursor-pointer shadow-lg shadow-indigo-500/15"
+              className="w-full py-3.5 mt-2 bg-white text-black hover:bg-zinc-200 disabled:bg-white/20 disabled:text-white/40 font-bold rounded-xl transition-all flex items-center justify-center gap-2 text-sm cursor-pointer shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.2)] hover:scale-[1.02] active:scale-[0.98]"
             >
               {authLoading ? (
                 <>
-                  <RotateCw className="w-4 h-4 animate-spin" />
-                  <span>Please wait...</span>
+                  <RotateCw className="w-5 h-5 animate-spin" />
+                  <span>Processing...</span>
                 </>
               ) : (
-                <span>{authScreenMode === "login" ? "Sign In" : "Register Account"}</span>
+                <span>{authScreenMode === "login" ? "Sign In to Dashboard" : "Create Workspace"}</span>
               )}
             </button>
           </form>
 
           {/* Form Switch Mode */}
-          <div className="text-center pt-2 border-t border-slate-800/80">
+          <div className="text-center pt-6 border-t border-white/10">
             <button
               onClick={() => {
                 setAuthScreenMode(authScreenMode === "login" ? "register" : "login");
                 setAuthError(null);
               }}
               type="button"
-              className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition"
+              className="text-sm text-zinc-400 hover:text-white font-medium transition-colors"
             >
               {authScreenMode === "login"
-                ? "Don't have an account? Sign up"
-                : "Already have an account? Log in"}
+                ? "New here? Let's get you registered."
+                : "Already have an account? Sign in."}
             </button>
           </div>
         </div>
@@ -2514,241 +2514,225 @@ export default function App() {
     );
   }
 
-  return (
-    <div id="app-root" className="min-h-screen bg-[#F4F5F7] text-[#091E42] font-sans flex flex-col antialiased">
-      {/* ONBOARDING MODAL OVERLAY */}
-      {appUser && appUser.hasSetupProfile === false && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 select-none">
-          <div className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-8 space-y-6 overflow-y-auto max-h-[95vh] text-white">
-            <div className="text-center space-y-2">
-              <div className="w-12 h-12 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center mx-auto shadow-md mb-2">
-                <KeyRound className="w-6 h-6 animate-pulse" />
-              </div>
-              <h2 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-indigo-400 bg-clip-text text-transparent">
-                First-Time Profile Configuration
-              </h2>
-              <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                Welcome to My Google AI Studio App! Let's get you set up with your Gemini and Jira API keys to unlock advanced collaborative AI workflows.
-              </p>
+  if (jwtToken && appUser && appUser.hasSetupProfile === false) {
+    return (
+      <div id="setup-root" className="min-h-screen w-full flex items-center justify-center bg-[#09090b] font-sans text-white p-6 relative overflow-hidden select-none">
+        {/* Animated Background Mesh */}
+        <div className="absolute inset-0 z-0">
+          <div className="absolute top-[-20%] right-[-10%] w-[70vw] h-[70vw] rounded-full bg-[radial-gradient(circle,rgba(59,130,246,0.1)_0%,transparent_60%)] blur-3xl animate-[pulse_10s_ease-in-out_infinite]" />
+          <div className="absolute bottom-[-20%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-[radial-gradient(circle,rgba(139,92,246,0.1)_0%,transparent_60%)] blur-3xl animate-[pulse_12s_ease-in-out_infinite_reverse]" />
+          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
+        </div>
+
+        {/* Setup Glass Card Container */}
+        <div className="relative z-10 w-full max-w-3xl bg-white/[0.03] backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_8px_32px_0_rgba(0,0,0,0.36)] p-8 md:p-12 space-y-8 max-h-[95vh] overflow-y-auto custom-scrollbar">
+          <div className="text-center space-y-3">
+            <div className="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+              <Activity className="w-7 h-7 text-white animate-pulse" />
             </div>
+            <h2 className="text-3xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70">
+              Configure Your Agent
+            </h2>
+            <p className="text-sm text-zinc-400 font-medium max-w-lg mx-auto">
+              Welcome to Jira Time Log Agent! Let's get you connected to your Jira instance and set up your preferred AI models to unlock advanced collaborative workflows.
+            </p>
+          </div>
 
-            <form onSubmit={handleOnboardingSubmit} className="space-y-4">
-              {onboardError && (
-                <div className="bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs px-4 py-3 rounded-lg flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
-                  <span>{onboardError}</span>
-                </div>
-              )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* AI Model Provider */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                    AI Provider
-                  </label>
-                  <select
-                    value={onboardModelProvider}
-                    onChange={(e) => {
-                      const prov = e.target.value;
-                      setOnboardModelProvider(prov);
-                      setOnboardModelName(prov === "google" ? "gemini-3.5-flash" : "gpt-5.5");
-                    }}
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 outline-none transition cursor-pointer"
-                  >
-                    <option value="google">Google Gemini</option>
-                    <option value="openai">OpenAI</option>
-                  </select>
+          <form onSubmit={handleOnboardingSubmit} className="space-y-8">
+            {onboardError && (
+              <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-400 font-medium flex items-start gap-3 backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 mt-1.5" />
+                <span>{onboardError}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Left Column: AI Models */}
+              <div className="space-y-5 bg-white/[0.02] border border-white/5 p-6 rounded-2xl">
+                <div className="border-b border-white/10 pb-3">
+                  <h3 className="text-lg font-semibold text-white">AI Capabilities</h3>
+                  <p className="text-xs text-zinc-500">Select and configure your model</p>
                 </div>
 
-                {/* AI Model Version */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                    AI Model Version
-                  </label>
-                  <select
-                    value={onboardModelName}
-                    onChange={(e) => setOnboardModelName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 outline-none transition cursor-pointer"
-                  >
-                    {onboardModelProvider === "google" ? (
-                      <>
-                        <option value="gemini-3.5-flash">Gemini 3.5 Flash (Fast/Default)</option>
-                        <option value="gemini-3.5-pro">Gemini 3.5 Pro (Reasoning Flagship)</option>
-                        <option value="gemini-3.1-pro">Gemini 3.1 Pro (Legacy Flagship)</option>
-                      </>
-                    ) : (
-                      <>
-                        <option value="gpt-5.5">GPT-5.5 (Flagship)</option>
-                        <option value="gpt-5.2">GPT-5.2 (Legacy 2026)</option>
-                        <option value="gpt-4.5">GPT-4.5 (Legacy)</option>
-                      </>
-                    )}
-                  </select>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">AI Provider</label>
+                    <div className="relative group">
+                      <select
+                        value={onboardModelProvider}
+                        onChange={(e) => {
+                          const prov = e.target.value;
+                          setOnboardModelProvider(prov);
+                          setOnboardModelName(prov === "google" ? "gemini-3.5-flash" : "gpt-5.5");
+                        }}
+                        className="w-full appearance-none bg-black/40 border border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-xl px-4 py-3.5 text-sm outline-none transition-all text-white hover:border-white/20 cursor-pointer"
+                      >
+                        <option value="google">Google Gemini</option>
+                        <option value="openai">OpenAI</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">Model Version</label>
+                    <div className="relative group">
+                      <select
+                        value={onboardModelName}
+                        onChange={(e) => setOnboardModelName(e.target.value)}
+                        className="w-full appearance-none bg-black/40 border border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-xl px-4 py-3.5 text-sm outline-none transition-all text-white hover:border-white/20 cursor-pointer"
+                      >
+                        {onboardModelProvider === "google" ? (
+                          <>
+                            <option value="gemini-3.5-flash">Gemini 3.5 Flash (Fast)</option>
+                            <option value="gemini-3.5-pro">Gemini 3.5 Pro (Flagship)</option>
+                            <option value="gemini-3.1-pro">Gemini 3.1 Pro (Legacy)</option>
+                          </>
+                        ) : (
+                          <>
+                            <option value="gpt-5.5">GPT-5.5 (Flagship)</option>
+                            <option value="gpt-5.2">GPT-5.2 (Legacy 2026)</option>
+                            <option value="gpt-4.5">GPT-4.5 (Legacy)</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
+                  </div>
+
+                  {onboardModelProvider === "google" && (
+                    <div className="space-y-2 pt-2">
+                      <div className="flex justify-between items-end">
+                        <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">Gemini API Key</label>
+                        <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-[10px] text-zinc-500 hover:text-white transition-colors underline">Get Key</a>
+                      </div>
+                      <div className="relative group">
+                        <input
+                          type={onboardShowGemini ? "text" : "password"}
+                          value={onboardGeminiKey}
+                          onChange={(e) => setOnboardGeminiKey(e.target.value)}
+                          placeholder="AIzaSy..."
+                          className="w-full bg-black/40 border border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-xl px-4 py-3.5 text-sm placeholder-zinc-600 outline-none transition-all text-white hover:border-white/20 font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setOnboardShowGemini(!onboardShowGemini)}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors text-[10px] font-bold uppercase tracking-wider"
+                        >
+                          {onboardShowGemini ? "Hide" : "Show"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {onboardModelProvider === "openai" && (
+                    <div className="space-y-2 pt-2">
+                      <div className="flex justify-between items-end">
+                        <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">OpenAI API Key</label>
+                        <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="text-[10px] text-zinc-500 hover:text-white transition-colors underline">Get Key</a>
+                      </div>
+                      <div className="relative group">
+                        <input
+                          type={onboardShowOpenai ? "text" : "password"}
+                          value={onboardOpenaiKey}
+                          onChange={(e) => setOnboardOpenaiKey(e.target.value)}
+                          placeholder="sk-..."
+                          className="w-full bg-black/40 border border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-xl px-4 py-3.5 text-sm placeholder-zinc-600 outline-none transition-all text-white hover:border-white/20 font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setOnboardShowOpenai(!onboardShowOpenai)}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors text-[10px] font-bold uppercase tracking-wider"
+                        >
+                          {onboardShowOpenai ? "Hide" : "Show"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Gemini API Key */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                    Google Gemini API Key
-                  </label>
-                  <a
-                    href="https://aistudio.google.com/app/apikey"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[10px] text-indigo-400 hover:text-indigo-300 underline font-medium transition"
-                  >
-                    Get Gemini Key
-                  </a>
+              {/* Right Column: Jira Connections */}
+              <div className="space-y-5 bg-white/[0.02] border border-white/5 p-6 rounded-2xl">
+                <div className="border-b border-white/10 pb-3">
+                  <h3 className="text-lg font-semibold text-white">Jira Connection</h3>
+                  <p className="text-xs text-zinc-500">Provide Atlassian credentials</p>
                 </div>
-                <div className="relative">
-                  <input
-                    type={onboardShowGemini ? "text" : "password"}
-                    placeholder="Enter Google Gemini API key (optional if using OpenAI)"
-                    value={onboardGeminiKey}
-                    onChange={(e) => setOnboardGeminiKey(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 placeholder-slate-600 outline-none transition"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setOnboardShowGemini(!onboardShowGemini)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition text-[10px] font-semibold"
-                  >
-                    {onboardShowGemini ? "HIDE" : "SHOW"}
-                  </button>
-                </div>
-              </div>
 
-              {/* OpenAI API Key */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                    OpenAI API Key
-                  </label>
-                  <a
-                    href="https://platform.openai.com/api-keys"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[10px] text-indigo-400 hover:text-indigo-300 underline font-medium transition"
-                  >
-                    Get OpenAI Key
-                  </a>
-                </div>
-                <div className="relative">
-                  <input
-                    type={onboardShowOpenai ? "text" : "password"}
-                    placeholder="Enter OpenAI API key (optional if using Gemini)"
-                    value={onboardOpenaiKey}
-                    onChange={(e) => setOnboardOpenaiKey(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 placeholder-slate-600 outline-none transition"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setOnboardShowOpenai(!onboardShowOpenai)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition text-[10px] font-semibold"
-                  >
-                    {onboardShowOpenai ? "HIDE" : "SHOW"}
-                  </button>
-                </div>
-              </div>
-
-              {/* Atlassian Jira Configuration */}
-              <div className="border-t border-slate-800/60 pt-4 mt-2 space-y-3">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5 pb-1">
-                  Atlassian Jira Credentials
-                </h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                      Jira Cloud Domain
-                    </label>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">Jira Domain</label>
                     <input
                       type="text"
-                      placeholder="company.atlassian.net"
                       value={onboardDomain}
                       onChange={(e) => setOnboardDomain(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 placeholder-slate-600 outline-none transition"
+                      placeholder="your-company.atlassian.net"
                       required
+                      className="w-full bg-black/40 border border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-xl px-4 py-3.5 text-sm placeholder-zinc-600 outline-none transition-all text-white hover:border-white/20"
                     />
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                      Jira Email Username
-                    </label>
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">Atlassian Email</label>
                     <input
                       type="email"
-                      placeholder="user@domain.com"
                       value={onboardEmail}
                       onChange={(e) => setOnboardEmail(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 placeholder-slate-600 outline-none transition"
+                      placeholder="name@company.com"
                       required
+                      className="w-full bg-black/40 border border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-xl px-4 py-3.5 text-sm placeholder-zinc-600 outline-none transition-all text-white hover:border-white/20"
                     />
                   </div>
-                </div>
 
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                      Atlassian API Security Token
-                    </label>
-                    <a
-                      href="https://id.atlassian.com/manage-profile/security/api-tokens"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[10px] text-indigo-400 hover:text-indigo-300 underline font-medium transition"
-                    >
-                      Create Token
-                    </a>
-                  </div>
-                  <div className="relative">
-                    <input
-                      type={onboardShowPassword ? "text" : "password"}
-                      placeholder="ATATT... API token"
-                      value={onboardToken}
-                      onChange={(e) => setOnboardToken(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 rounded-lg text-xs text-slate-200 placeholder-slate-600 outline-none transition"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setOnboardShowPassword(!onboardShowPassword)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition text-[10px] font-semibold"
-                    >
-                      {onboardShowPassword ? "HIDE" : "SHOW"}
-                    </button>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-end">
+                      <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">API Token</label>
+                      <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noreferrer" className="text-[10px] text-zinc-500 hover:text-white transition-colors underline">Get Token</a>
+                    </div>
+                    <div className="relative group">
+                      <input
+                        type={onboardShowPassword ? "text" : "password"}
+                        value={onboardToken}
+                        onChange={(e) => setOnboardToken(e.target.value)}
+                        placeholder="Paste your API token here"
+                        required
+                        className="w-full bg-black/40 border border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-xl px-4 py-3.5 pr-16 text-sm placeholder-zinc-600 outline-none transition-all text-white hover:border-white/20 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setOnboardShowPassword(!onboardShowPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors text-[10px] font-bold uppercase tracking-wider"
+                      >
+                        {onboardShowPassword ? "Hide" : "Show"}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
+            </div>
 
-              <div className="flex justify-end pt-4">
-                <button
-                  type="submit"
-                  disabled={onboardLoading}
-                  className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  {onboardLoading ? (
-                    <>
-                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Saving and Syncing...
-                    </>
-                  ) : (
-                    "Save & Get Started"
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={onboardLoading}
+                className="w-full py-4 bg-white text-black hover:bg-zinc-200 disabled:bg-white/20 disabled:text-white/40 font-bold rounded-xl transition-all flex items-center justify-center gap-2 text-sm cursor-pointer shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.2)] hover:scale-[1.01] active:scale-[0.99]"
+              >
+                {onboardLoading ? (
+                  <>
+                    <RotateCw className="w-5 h-5 animate-spin" />
+                    <span>Configuring Agent...</span>
+                  </>
+                ) : (
+                  <span>Launch Dashboard</span>
+                )}
+              </button>
+            </div>
+          </form>
         </div>
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div id="app-root" className="min-h-screen bg-[#F4F5F7] text-[#091E42] font-sans flex flex-col antialiased">
 
       {/* GLOBAL HEADER BANNER */}
       <header id="app-header" className="border-b border-[#DFE1E6] bg-white sticky top-0 z-40 px-6 py-3 flex items-center justify-between shadow-xs">
