@@ -32,8 +32,7 @@ import {
   ExternalLink,
   FileText,
   Bot,
-  Send,
-  Save
+  Send
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { initDB, saveSession, getSession, getAllSessions, deleteSession, ChatSession } from "./db";
@@ -137,6 +136,23 @@ function formatErrorMessage(errMsg: string | undefined | null): string {
   return cleaned;
 }
 
+const MODEL_OPTIONS = [
+  { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash", meta: "Fast default", provider: "google" },
+  { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro", meta: "Reasoning flagship", provider: "google" },
+  { value: "gemini-1.5-pro", label: "Gemini 1.5 Pro", meta: "Legacy", provider: "google" },
+  { value: "gpt-4o", label: "GPT-4o", meta: "Flagship", provider: "openai" },
+  { value: "gpt-4o-mini", label: "GPT-4o Mini", meta: "Fast", provider: "openai" },
+  { value: "gpt-4-turbo", label: "GPT-4 Turbo", meta: "Legacy", provider: "openai" }
+] as const;
+
+function getModelOption(modelName?: string | null, provider?: string | null) {
+  return (
+    MODEL_OPTIONS.find((option) => option.value === modelName) ||
+    MODEL_OPTIONS.find((option) => option.provider === provider) ||
+    MODEL_OPTIONS[0]
+  );
+}
+
 function isDirectConnEqual(a: any, b: any): boolean {
   const normA = a || null;
   const normB = b || null;
@@ -195,7 +211,6 @@ export default function App() {
   const [onboardOpenaiKey, setOnboardOpenaiKey] = useState("");
   const [onboardModelProvider, setOnboardModelProvider] = useState("google");
   const [onboardModelName, setOnboardModelName] = useState("gemini-2.0-flash");
-  const [aiSettingsSaved, setAiSettingsSaved] = React.useState(false);
   const [onboardShowOpenai, setOnboardShowOpenai] = useState(false);
   const [onboardLoading, setOnboardLoading] = useState(false);
   const [onboardError, setOnboardError] = useState<string | null>(null);
@@ -219,6 +234,7 @@ export default function App() {
   const [openaiApiKey, setOpenaiApiKey] = useState<string | null>(activeProfile?.openaiApiKey || null);
   const [selectedModelProvider, setSelectedModelProvider] = useState<string>(activeProfile?.selectedModelProvider || "google");
   const [selectedModelName, setSelectedModelName] = useState<string>(activeProfile?.selectedModelName || "gemini-2.0-flash");
+  const activeModelOption = getModelOption(selectedModelName, selectedModelProvider);
 
   // Profile manager form inputs
   const [profileFormName, setProfileFormName] = useState("");
@@ -228,7 +244,7 @@ export default function App() {
   const [profileFormToken, setProfileFormToken] = useState("");
   const [profileFormGeminiKey, setProfileFormGeminiKey] = useState("");
   const [showAddProfileForm, setShowAddProfileForm] = useState(false);
-  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [profileFormError, setProfileFormError] = useState<string | null>(null);
 
   // Basic Auth Connection Inputs pre-filled with user configuration
   const [inputDomain, setInputDomain] = useState("joblogic.atlassian.net");
@@ -3825,7 +3841,7 @@ export default function App() {
                       <div>
                         <h2 className="text-sm font-bold text-[#091E42]">My Profile Connection Manager</h2>
                         <p className="text-[11px] text-[#5E6C84] mt-1 leading-relaxed max-w-xl font-medium">
-                          Securely store and swap between credential profiles for multiple workspaces. Your access codes, API tokens, and domains are saved securely on the server, segregated by your user account.
+                          Securely store and swap between credential profiles for multiple workspaces. Your access codes, API tokens, and domains are saved securely on the server for your account.
                         </p>
                       </div>
                     </div>
@@ -3837,8 +3853,9 @@ export default function App() {
                         setProfileFormDomain("");
                         setProfileFormEmail("");
                         setProfileFormToken("");
+                        setProfileFormGeminiKey("");
                         setShowAddProfileForm(!showAddProfileForm);
-                        setProfileMessage(null);
+                        setProfileFormError(null);
                       }}
                       className="px-4 py-2 bg-[#0052CC] hover:bg-[#0747A6] text-white text-xs font-semibold rounded-lg shadow-xs flex items-center gap-1.5 transition select-none cursor-pointer shrink-0"
                     >
@@ -3846,16 +3863,6 @@ export default function App() {
                       <span>{showAddProfileForm ? "Close Form" : "Create New Profile"}</span>
                     </button>
                   </div>
-
-                  {profileMessage && (
-                    <div className="bg-[#DEEBFF] text-[#0052CC] border border-[#B3D4FF] p-4 rounded-lg text-xs leading-relaxed font-semibold flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Info className="w-4 h-4 shrink-0" />
-                        {profileMessage}
-                      </span>
-                      <button onClick={() => setProfileMessage(null)} className="text-[#0747A6] hover:underline font-bold text-xs">Dismiss</button>
-                    </div>
-                  )}
 
                   {/* Add New Profile Section */}
                   {showAddProfileForm && (
@@ -3934,11 +3941,17 @@ export default function App() {
                         </div>
                       )}
 
+                      {profileFormError && (
+                        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+                          {profileFormError}
+                        </div>
+                      )}
+
                       <div className="flex justify-end pt-2">
                         <button
                           onClick={() => {
                             if (!profileFormName.trim()) {
-                              setProfileMessage("Please supply a valid profile name identifier.");
+                              setProfileFormError("Please supply a valid profile name identifier.");
                               return;
                             }
 
@@ -3957,9 +3970,9 @@ export default function App() {
                               geminiApiKey: profileFormGeminiKey.trim() || null
                             };
 
+                            setProfileFormError(null);
                             setProfiles(prev => [...prev, newProfile]);
                             setShowAddProfileForm(false);
-                            setProfileMessage(`Swapped to new user profile "${profileFormName.trim()}"! loading environment context.`);
                             handleSwitchProfile(newId);
                           }}
                           className="px-4 py-2 bg-[#0052CC] hover:bg-[#0747A6] text-white text-xs font-semibold rounded-md transition cursor-pointer select-none"
@@ -3972,84 +3985,46 @@ export default function App() {
 
                   {/* Active Profile AI Settings Configuration Panel */}
                   <div className="bg-[#FAFBFC] border border-[#DFE1E6] rounded-xl p-5 shadow-xs space-y-4">
-                    <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                    <div className="flex flex-col gap-1 pb-2 border-b border-slate-200">
                       <div className="flex items-center gap-1.5">
                         <Sparkles className="w-4 h-4 text-indigo-500" />
                         <h4 className="text-xs font-bold text-[#091E42] uppercase tracking-wide">
                           Active Profile AI Settings
                         </h4>
                       </div>
-                      <button
-                        onClick={async () => {
-                          const activePrf = profiles.find(p => p.id === activeProfileId);
-                          if (!activePrf) return;
-                          try {
-                            await saveProfileBackend({ ...activePrf, geminiApiKey, openaiApiKey, selectedModelProvider, selectedModelName });
-                            setAiSettingsSaved(true);
-                            setTimeout(() => setAiSettingsSaved(false), 2000);
-                          } catch (err) {
-                            console.error("Save AI settings failed:", err);
-                          }
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0052CC] hover:bg-[#0747A6] text-white text-[11px] font-semibold rounded-lg transition cursor-pointer"
-                      >
-                        {aiSettingsSaved ? (
-                          <><Check className="w-3 h-3" /> Saved!</>
-                        ) : (
-                          <><Save className="w-3 h-3" /> Save AI Settings</>
-                        )}
-                      </button>
+                      <p className="text-[11px] text-[#5E6C84] font-medium">
+                        Changes here save automatically for the active profile.
+                      </p>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Provider selection */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="space-y-1">
-                        <label className="text-[11px] font-semibold text-[#42526E]">AI Model Provider</label>
+                        <label className="text-[11px] font-semibold text-[#42526E]">AI Model</label>
                         <select
-                          value={selectedModelProvider || "google"}
+                          value={activeModelOption.value}
                           onChange={(e) => {
-                            const prov = e.target.value;
-                            setSelectedModelProvider(prov);
-                            setSelectedModelName(prov === "google" ? "gemini-2.0-flash" : "gpt-4o");
+                            const nextOption = MODEL_OPTIONS.find((option) => option.value === e.target.value);
+                            if (!nextOption) return;
+                            setSelectedModelName(nextOption.value);
+                            setSelectedModelProvider(nextOption.provider);
                           }}
                           className="w-full px-3 py-2 bg-white hover:bg-slate-50 border border-[#DFE1E6] focus:border-[#0052CC] rounded-lg text-xs text-[#091E42] outline-none transition cursor-pointer"
                         >
-                          <option value="google">Google Gemini</option>
-                          <option value="openai">OpenAI</option>
+                          {MODEL_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label} ({option.meta})
+                            </option>
+                          ))}
                         </select>
                       </div>
 
-                      {/* Model selection */}
                       <div className="space-y-1">
-                        <label className="text-[11px] font-semibold text-[#42526E]">AI Model Version</label>
-                        <select
-                          value={
-                            selectedModelProvider === "google"
-                              ? (["gemini-2.0-flash","gemini-2.5-pro","gemini-1.5-pro"].includes(selectedModelName || "") ? selectedModelName! : "gemini-2.0-flash")
-                              : (["gpt-4o","gpt-4o-mini","gpt-4-turbo"].includes(selectedModelName || "") ? selectedModelName! : "gpt-4o")
-                          }
-                          onChange={(e) => setSelectedModelName(e.target.value)}
-                          className="w-full px-3 py-2 bg-white hover:bg-slate-50 border border-[#DFE1E6] focus:border-[#0052CC] rounded-lg text-xs text-[#091E42] outline-none transition cursor-pointer"
-                        >
-                          {selectedModelProvider === "google" ? (
-                            <>
-                              <option value="gemini-2.0-flash">Gemini 2.0 Flash (Fast/Default)</option>
-                              <option value="gemini-2.5-pro">Gemini 2.5 Pro (Reasoning Flagship)</option>
-                              <option value="gemini-1.5-pro">Gemini 1.5 Pro (Legacy)</option>
-                            </>
-                          ) : (
-                            <>
-                              <option value="gpt-4o">GPT-4o (Flagship)</option>
-                              <option value="gpt-4o-mini">GPT-4o Mini (Fast)</option>
-                              <option value="gpt-4-turbo">GPT-4 Turbo (Legacy)</option>
-                            </>
-                          )}
-                        </select>
+                        <label className="text-[11px] font-semibold text-[#42526E]">Provider</label>
+                        <div className="rounded-lg border border-[#DFE1E6] bg-white px-3 py-2 text-xs font-semibold text-[#091E42]">
+                          {activeModelOption.provider === "google" ? "Google Gemini" : "OpenAI"}
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Show only the relevant API key for selected provider */}
-                    {(selectedModelProvider || "google") === "google" ? (
                       <div className="space-y-1">
                         <label className="text-[11px] font-semibold text-[#42526E]">Google Gemini API Key</label>
                         <div className="relative">
@@ -4063,7 +4038,9 @@ export default function App() {
                           />
                         </div>
                       </div>
-                    ) : (
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="text-[11px] font-semibold text-[#42526E]">OpenAI API Key</label>
                         <div className="relative">
@@ -4077,7 +4054,11 @@ export default function App() {
                           />
                         </div>
                       </div>
-                    )}
+
+                      <div className="rounded-xl border border-dashed border-[#B3D4FF] bg-[#F7FAFF] px-4 py-3 text-[11px] leading-relaxed text-[#42526E]">
+                        The selected model decides which provider is used. Keep either API key blank to fall back to the server default for that provider.
+                      </div>
+                    </div>
                   </div>
 
                   {/* Profile Cards Grid list */}
@@ -4148,7 +4129,6 @@ export default function App() {
                                 <button
                                   onClick={() => {
                                     handleSwitchProfile(prf.id);
-                                    setProfileMessage(`Switched connection dashboard environment to "${prf.name}"!`);
                                   }}
                                   className="text-xs px-3 py-1.5 bg-[#F4F5F7] hover:bg-[#DEEBFF] text-[#0052CC] font-bold rounded-md border border-[#DFE1E6] hover:border-[#B3D4FF] cursor-pointer select-none transition flex items-center gap-1 leading-none"
                                 >
@@ -4164,7 +4144,6 @@ export default function App() {
                                   if (confirm(`Are you sure you want to delete profile "${prf.name}"? This is irreversible.`)) {
                                     deleteProfileBackend(prf.id).then(() => {
                                       setProfiles(prev => prev.filter(p => p.id !== prf.id));
-                                      setProfileMessage(`Deleted connection profile "${prf.name}" from your configurations list.`);
                                     }).catch(err => {
                                       setErrorMessage(`Failed to delete profile: ${err.message}`);
                                     });
