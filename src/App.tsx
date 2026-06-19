@@ -136,6 +136,29 @@ function formatErrorMessage(errMsg: string | undefined | null): string {
   return cleaned;
 }
 
+function normalizeTaskIssueType(issuetype?: string | null): "Task" | "Story" | "Bug" | "Epic" {
+  const normalized = (issuetype || "").trim().toLowerCase();
+  if (normalized === "story") return "Story";
+  if (normalized === "bug") return "Bug";
+  if (normalized === "epic") return "Epic";
+  return "Task";
+}
+
+function normalizeProposedTask(task: any, fallbackProject?: string | null) {
+  return {
+    ...task,
+    project: (task?.project || fallbackProject || "").trim(),
+    issuetype: normalizeTaskIssueType(task?.issuetype),
+    priority: task?.priority || "Medium"
+  };
+}
+
+function isNonCriticalConfluenceError(message?: string | null): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return lower.includes("status 400") || lower.includes("status 401") || lower.includes("status 403");
+}
+
 const MODEL_OPTIONS = [
   { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash", meta: "Fast default", provider: "google" },
   { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro", meta: "Reasoning flagship", provider: "google" },
@@ -1223,27 +1246,33 @@ export default function App() {
   };
 
   const handleCreateTaskFromAi = async (messageId: string, taskIndex: number, task: any) => {
+    const normalizedTask = normalizeProposedTask(task, selectedProject?.key);
+
     setAiMessages(prev => prev.map(msg => {
       if (msg.id === messageId && msg.proposedTasks) {
         const tasks = [...msg.proposedTasks];
-        tasks[taskIndex] = { ...tasks[taskIndex], isCreating: true };
+        tasks[taskIndex] = { ...tasks[taskIndex], ...normalizedTask, isCreating: true, error: undefined };
         return { ...msg, proposedTasks: tasks };
       }
       return msg;
     }));
 
     try {
-      const adfDesc = task.description ? {
+      if (!normalizedTask.project) {
+        throw new Error("No Jira project was selected for this task.");
+      }
+
+      const adfDesc = normalizedTask.description ? {
         type: "doc", version: 1,
-        content: [{ type: "paragraph", content: [{ type: "text", text: task.description }] }]
+        content: [{ type: "paragraph", content: [{ type: "text", text: normalizedTask.description }] }]
       } : undefined;
 
       const payload: any = {
         fields: {
-          project: { key: task.project },
-          summary: task.summary,
-          issuetype: { name: task.issuetype || "Task" },
-          priority: { name: task.priority || "Medium" }
+          project: { key: normalizedTask.project },
+          summary: normalizedTask.summary,
+          issuetype: { name: normalizedTask.issuetype },
+          priority: { name: normalizedTask.priority || "Medium" }
         }
       };
       if (adfDesc) payload.fields.description = adfDesc;
@@ -1253,7 +1282,7 @@ export default function App() {
       setAiMessages(prev => prev.map(msg => {
         if (msg.id === messageId && msg.proposedTasks) {
           const tasks = [...msg.proposedTasks];
-          tasks[taskIndex] = { ...tasks[taskIndex], isCreating: false, success: true, createdKey: created?.key };
+          tasks[taskIndex] = { ...tasks[taskIndex], ...normalizedTask, isCreating: false, success: true, createdKey: created?.key };
           return { ...msg, proposedTasks: tasks };
         }
         return msg;
@@ -1881,7 +1910,9 @@ export default function App() {
       try {
         data = await makeProxyCall("wiki/api/v2/spaces", "GET", undefined, { limit: 50 });
       } catch (err: any) {
-        console.warn("Confluence API v2 spaces failed, trying rest/api/space fallback...", err);
+        if (!isNonCriticalConfluenceError(err?.message)) {
+          console.warn("Confluence API v2 spaces failed, trying rest/api/space fallback...", err);
+        }
         data = await makeProxyCall("wiki/rest/api/space", "GET", undefined, { limit: 50 });
       }
 
@@ -1894,7 +1925,9 @@ export default function App() {
         setConfluenceSpaces([]);
       }
     } catch (err: any) {
-      console.warn("Confluence fetch spaces error (non-critical):", err);
+      if (!isNonCriticalConfluenceError(err?.message)) {
+        console.warn("Confluence fetch spaces error (non-critical):", err);
+      }
       setConfluenceSpaces([]);
       // Don't surface as a blocking error — Confluence may not be enabled on this workspace
     } finally {
@@ -2003,7 +2036,9 @@ export default function App() {
         setSelectedPage(null);
       }
     } catch (err: any) {
-      console.warn("Confluence fetch v1 pages failed, trying api/v2/pages...", err);
+      if (!isNonCriticalConfluenceError(err?.message)) {
+        console.warn("Confluence fetch v1 pages failed, trying api/v2/pages...", err);
+      }
       try {
         const query = { limit: 50 };
         const data = await makeProxyCall("wiki/api/v2/pages", "GET", undefined, query);
@@ -2022,7 +2057,9 @@ export default function App() {
       } catch (innerErr: any) {
         setConfluencePages([]);
         setSelectedPage(null);
-        setErrorMessage(`Could not load pages for Space ${spaceKey}: ${innerErr.message || err.message}`);
+        if (!isNonCriticalConfluenceError(innerErr?.message || err?.message)) {
+          setErrorMessage(`Could not load pages for Space ${spaceKey}: ${innerErr.message || err.message}`);
+        }
       }
     } finally {
       setIsFetchingConfluence(false);

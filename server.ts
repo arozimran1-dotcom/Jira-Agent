@@ -57,6 +57,46 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
   }
 }
 
+function normalizeTaskIssueType(issuetype?: string | null): "Task" | "Story" | "Bug" | "Epic" {
+  const normalized = (issuetype || "").trim().toLowerCase();
+  if (normalized === "story") return "Story";
+  if (normalized === "bug") return "Bug";
+  if (normalized === "epic") return "Epic";
+  return "Task";
+}
+
+function normalizeTaskPriority(priority?: string | null): "Highest" | "High" | "Medium" | "Low" | "Lowest" {
+  const normalized = (priority || "").trim().toLowerCase();
+  if (normalized === "highest") return "Highest";
+  if (normalized === "high") return "High";
+  if (normalized === "low") return "Low";
+  if (normalized === "lowest") return "Lowest";
+  return "Medium";
+}
+
+function normalizeAgentResponse(payload: any, activeProject?: { key?: string | null; name?: string | null } | null) {
+  const fallbackProject = (activeProject?.key || "").trim();
+  const proposedLogs = Array.isArray(payload?.proposedLogs) ? payload.proposedLogs : [];
+  const proposedTasks = Array.isArray(payload?.proposedTasks)
+    ? payload.proposedTasks
+        .map((task: any) => ({
+          ...task,
+          project: (task?.project || fallbackProject || "").trim(),
+          summary: task?.summary || "",
+          description: task?.description || "",
+          issuetype: normalizeTaskIssueType(task?.issuetype),
+          priority: normalizeTaskPriority(task?.priority)
+        }))
+        .filter((task: any) => task.project && task.summary)
+    : [];
+
+  return {
+    explanation: payload?.explanation || "",
+    proposedLogs,
+    proposedTasks
+  };
+}
+
 // Enable JSON body parsing with higher limit for bulk operations
 app.use(express.json({ limit: "10mb" }));
 
@@ -691,7 +731,7 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
         }
       }
 
-      res.json(responseJson);
+      res.json(normalizeAgentResponse(responseJson, activeProject));
     } catch (error: any) {
       console.error("OpenAI Agent Proxy Error:", error);
       res.status(500).json({ error: error.message || "Failed to query Jira OpenAI agent" });
@@ -840,7 +880,7 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
         throw new Error("Empty response from AI engine");
       }
 
-      res.json(JSON.parse(dataText));
+      res.json(normalizeAgentResponse(JSON.parse(dataText), activeProject));
     } catch (error: any) {
       console.error("AI Agent Proxy Error:", error);
       res.status(500).json({ error: error.message || "Failed to query Jira AI agent" });
