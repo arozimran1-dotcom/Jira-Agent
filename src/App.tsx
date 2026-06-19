@@ -160,19 +160,17 @@ function isNonCriticalConfluenceError(message?: string | null): boolean {
 }
 
 const MODEL_OPTIONS = [
-  { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash", meta: "Fast default", provider: "google" },
-  { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro", meta: "Reasoning flagship", provider: "google" },
-  { value: "gemini-1.5-pro", label: "Gemini 1.5 Pro", meta: "Legacy", provider: "google" },
-  { value: "gpt-4o", label: "GPT-4o", meta: "Flagship", provider: "openai" },
-  { value: "gpt-4o-mini", label: "GPT-4o Mini", meta: "Fast", provider: "openai" },
-  { value: "gpt-4-turbo", label: "GPT-4 Turbo", meta: "Legacy", provider: "openai" }
+  { value: "gpt-5.4-mini", label: "GPT-5.4 mini", meta: "OpenAI", provider: "openai" },
+  { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash", meta: "Google Gemini", provider: "google" }
 ] as const;
+
+const DEFAULT_MODEL = MODEL_OPTIONS[0];
 
 function getModelOption(modelName?: string | null, provider?: string | null) {
   return (
     MODEL_OPTIONS.find((option) => option.value === modelName) ||
     MODEL_OPTIONS.find((option) => option.provider === provider) ||
-    MODEL_OPTIONS[0]
+    DEFAULT_MODEL
   );
 }
 
@@ -232,8 +230,9 @@ export default function App() {
   const [onboardToken, setOnboardToken] = useState("");
   const [onboardGeminiKey, setOnboardGeminiKey] = useState("");
   const [onboardOpenaiKey, setOnboardOpenaiKey] = useState("");
-  const [onboardModelProvider, setOnboardModelProvider] = useState("google");
-  const [onboardModelName, setOnboardModelName] = useState("gemini-2.0-flash");
+  const [onboardModelProvider, setOnboardModelProvider] = useState<string>(DEFAULT_MODEL.provider);
+  const [onboardModelName, setOnboardModelName] = useState<string>(DEFAULT_MODEL.value);
+  const onboardModelOption = getModelOption(onboardModelName, onboardModelProvider);
   const [onboardShowOpenai, setOnboardShowOpenai] = useState(false);
   const [onboardLoading, setOnboardLoading] = useState(false);
   const [onboardError, setOnboardError] = useState<string | null>(null);
@@ -255,8 +254,8 @@ export default function App() {
   const [directConn, setDirectConn] = useState<DirectConnection | null>(activeProfile?.directConn || null);
   const [geminiApiKey, setGeminiApiKey] = useState<string | null>(activeProfile?.geminiApiKey || null);
   const [openaiApiKey, setOpenaiApiKey] = useState<string | null>(activeProfile?.openaiApiKey || null);
-  const [selectedModelProvider, setSelectedModelProvider] = useState<string>(activeProfile?.selectedModelProvider || "google");
-  const [selectedModelName, setSelectedModelName] = useState<string>(activeProfile?.selectedModelName || "gemini-2.0-flash");
+  const [selectedModelProvider, setSelectedModelProvider] = useState<string>(getModelOption(activeProfile?.selectedModelName, activeProfile?.selectedModelProvider).provider);
+  const [selectedModelName, setSelectedModelName] = useState<string>(getModelOption(activeProfile?.selectedModelName, activeProfile?.selectedModelProvider).value);
   const activeModelOption = getModelOption(selectedModelName, selectedModelProvider);
 
   // Profile manager form inputs
@@ -710,11 +709,12 @@ export default function App() {
       if ((openaiApiKey || null) !== (activePrf.openaiApiKey || null)) {
         setOpenaiApiKey(activePrf.openaiApiKey || null);
       }
-      if ((selectedModelProvider || "google") !== (activePrf.selectedModelProvider || "google")) {
-        setSelectedModelProvider(activePrf.selectedModelProvider || "google");
+      const nextModelOption = getModelOption(activePrf.selectedModelName, activePrf.selectedModelProvider);
+      if (selectedModelProvider !== nextModelOption.provider) {
+        setSelectedModelProvider(nextModelOption.provider);
       }
-      if ((selectedModelName || "gemini-2.0-flash") !== (activePrf.selectedModelName || "gemini-2.0-flash")) {
-        setSelectedModelName(activePrf.selectedModelName || "gemini-2.0-flash");
+      if (selectedModelName !== nextModelOption.value) {
+        setSelectedModelName(nextModelOption.value);
       }
     } else {
       if (authType !== "oauth") setAuthType("oauth");
@@ -723,8 +723,8 @@ export default function App() {
       if (directConn !== null) setDirectConn(null);
       if (geminiApiKey !== null) setGeminiApiKey(null);
       if (openaiApiKey !== null) setOpenaiApiKey(null);
-      if (selectedModelProvider !== "google") setSelectedModelProvider("google");
-      if (selectedModelName !== "gemini-2.0-flash") setSelectedModelName("gemini-2.0-flash");
+      if (selectedModelProvider !== DEFAULT_MODEL.provider) setSelectedModelProvider(DEFAULT_MODEL.provider);
+      if (selectedModelName !== DEFAULT_MODEL.value) setSelectedModelName(DEFAULT_MODEL.value);
     }
   }, [activeProfileId, profiles]);
 
@@ -975,8 +975,8 @@ export default function App() {
           issues: finalIssuesConfig,
           apiKey: geminiApiKey,
           openaiApiKey: openaiApiKey,
-          provider: selectedModelProvider || "google",
-          model: selectedModelName || "gemini-2.0-flash",
+          provider: selectedModelProvider || DEFAULT_MODEL.provider,
+          model: selectedModelName || DEFAULT_MODEL.value,
           recentWorklogs,
           authConfig,
           userProfile: currentUserDetails || null,
@@ -1332,6 +1332,8 @@ export default function App() {
     const activePrf = profiles.find(p => p.id === activeProfileId);
     if (!activePrf) return;
 
+    const normalizedProfileModel = getModelOption(activePrf.selectedModelName, activePrf.selectedModelProvider);
+
     const hasChanges = 
       authType !== activePrf.authType ||
       !isDirectConnEqual(directConn, activePrf.directConn) ||
@@ -1339,8 +1341,8 @@ export default function App() {
       !isSelectedSiteEqual(selectedSite, activePrf.selectedSite) ||
       (geminiApiKey || null) !== (activePrf.geminiApiKey || null) ||
       (openaiApiKey || null) !== (activePrf.openaiApiKey || null) ||
-      (selectedModelProvider || "google") !== (activePrf.selectedModelProvider || "google") ||
-      (selectedModelName || "gemini-2.0-flash") !== (activePrf.selectedModelName || "gemini-2.0-flash");
+      selectedModelProvider !== normalizedProfileModel.provider ||
+      selectedModelName !== normalizedProfileModel.value;
 
     if (!hasChanges) return;
 
@@ -2702,54 +2704,40 @@ export default function App() {
               <div className="space-y-5 bg-white/[0.02] border border-white/5 p-6 rounded-2xl">
                 <div className="border-b border-white/10 pb-3">
                   <h3 className="text-lg font-semibold text-white">AI Capabilities</h3>
-                  <p className="text-xs text-zinc-500">Select and configure your model</p>
+                  <p className="text-xs text-zinc-500">Pick one model and add the matching API key</p>
                 </div>
 
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">AI Provider</label>
+                    <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">AI Model</label>
                     <div className="relative group">
                       <select
-                        value={onboardModelProvider}
+                        value={onboardModelOption.value}
                         onChange={(e) => {
-                          const prov = e.target.value;
-                          setOnboardModelProvider(prov);
-                          setOnboardModelName(prov === "google" ? "gemini-2.0-flash" : "gpt-4o");
+                          const nextOption = MODEL_OPTIONS.find((option) => option.value === e.target.value);
+                          if (!nextOption) return;
+                          setOnboardModelProvider(nextOption.provider);
+                          setOnboardModelName(nextOption.value);
                         }}
                         className="w-full appearance-none bg-black/40 border border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-xl px-4 py-3.5 text-sm outline-none transition-all text-white hover:border-white/20 cursor-pointer"
                       >
-                        <option value="google">Google Gemini</option>
-                        <option value="openai">OpenAI</option>
+                        {MODEL_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">Model Version</label>
-                    <div className="relative group">
-                      <select
-                        value={onboardModelName}
-                        onChange={(e) => setOnboardModelName(e.target.value)}
-                        className="w-full appearance-none bg-black/40 border border-white/10 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 rounded-xl px-4 py-3.5 text-sm outline-none transition-all text-white hover:border-white/20 cursor-pointer"
-                      >
-                        {onboardModelProvider === "google" ? (
-                          <>
-                            <option value="gemini-2.0-flash">Gemini 2.0 Flash (Fast)</option>
-                            <option value="gemini-2.5-pro">Gemini 2.5 Pro (Flagship)</option>
-                            <option value="gemini-1.5-pro">Gemini 1.5 Pro (Legacy)</option>
-                          </>
-                        ) : (
-                          <>
-                            <option value="gpt-4o">GPT-4o (Flagship)</option>
-                            <option value="gpt-4o-mini">GPT-4o Mini (Fast)</option>
-                            <option value="gpt-4-turbo">GPT-4 Turbo (Legacy)</option>
-                          </>
-                        )}
-                      </select>
+                    <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">Provider</label>
+                    <div className="bg-black/40 border border-white/10 rounded-xl px-4 py-3.5 text-sm text-white font-semibold">
+                      {onboardModelOption.meta}
                     </div>
                   </div>
 
-                  {onboardModelProvider === "google" && (
+                  {onboardModelOption.provider === "google" && (
                     <div className="space-y-2 pt-2">
                       <div className="flex justify-between items-end">
                         <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">Gemini API Key</label>
@@ -2774,7 +2762,7 @@ export default function App() {
                     </div>
                   )}
 
-                  {onboardModelProvider === "openai" && (
+                  {onboardModelOption.provider === "openai" && (
                     <div className="space-y-2 pt-2">
                       <div className="flex justify-between items-end">
                         <label className="text-xs font-semibold uppercase tracking-widest text-zinc-400 ml-1">OpenAI API Key</label>
@@ -4026,42 +4014,31 @@ export default function App() {
                       <div className="flex items-center gap-1.5">
                         <Sparkles className="w-4 h-4 text-indigo-500" />
                         <h4 className="text-xs font-bold text-[#091E42] uppercase tracking-wide">
-                          Active Profile AI Settings
+                          Active Profile AI Access
                         </h4>
                       </div>
                       <p className="text-[11px] text-[#5E6C84] font-medium">
-                        Changes here save automatically for the active profile.
+                        Manage API keys here. Switch the actual model from inside the chat box.
                       </p>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-1">
-                        <label className="text-[11px] font-semibold text-[#42526E]">AI Model</label>
-                        <select
-                          value={activeModelOption.value}
-                          onChange={(e) => {
-                            const nextOption = MODEL_OPTIONS.find((option) => option.value === e.target.value);
-                            if (!nextOption) return;
-                            setSelectedModelName(nextOption.value);
-                            setSelectedModelProvider(nextOption.provider);
-                          }}
-                          className="w-full px-3 py-2 bg-white hover:bg-slate-50 border border-[#DFE1E6] focus:border-[#0052CC] rounded-lg text-xs text-[#091E42] outline-none transition cursor-pointer"
-                        >
-                          {MODEL_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label} ({option.meta})
-                            </option>
-                          ))}
-                        </select>
+                        <label className="text-[11px] font-semibold text-[#42526E]">Current Chat Model</label>
+                        <div className="rounded-lg border border-[#DFE1E6] bg-white px-3 py-2 text-xs font-semibold text-[#091E42]">
+                          {activeModelOption.label}
+                        </div>
                       </div>
 
                       <div className="space-y-1">
                         <label className="text-[11px] font-semibold text-[#42526E]">Provider</label>
                         <div className="rounded-lg border border-[#DFE1E6] bg-white px-3 py-2 text-xs font-semibold text-[#091E42]">
-                          {activeModelOption.provider === "google" ? "Google Gemini" : "OpenAI"}
+                          {activeModelOption.meta}
                         </div>
                       </div>
+                    </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="text-[11px] font-semibold text-[#42526E]">Google Gemini API Key</label>
                         <div className="relative">
@@ -4075,9 +4052,7 @@ export default function App() {
                           />
                         </div>
                       </div>
-                    </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="text-[11px] font-semibold text-[#42526E]">OpenAI API Key</label>
                         <div className="relative">
@@ -4091,10 +4066,10 @@ export default function App() {
                           />
                         </div>
                       </div>
+                    </div>
 
-                      <div className="rounded-xl border border-dashed border-[#B3D4FF] bg-[#F7FAFF] px-4 py-3 text-[11px] leading-relaxed text-[#42526E]">
-                        The selected model decides which provider is used. Keep either API key blank to fall back to the server default for that provider.
-                      </div>
+                    <div className="rounded-xl border border-dashed border-[#B3D4FF] bg-[#F7FAFF] px-4 py-3 text-[11px] leading-relaxed text-[#42526E]">
+                      Supported chat models are now limited to <span className="font-semibold text-[#091E42]">GPT-5.4 mini</span> and <span className="font-semibold text-[#091E42]">Gemini 3.5 Flash</span>. Leave a key blank to use the server default for that provider.
                     </div>
                   </div>
 
@@ -5194,6 +5169,35 @@ export default function App() {
               {/* Input Form Footer */}
               {!isHistoryOpen && (
                 <div className="p-4 bg-[#FAFBFC] border-t border-[#DFE1E6] shrink-0">
+                  <div className="flex items-center justify-between gap-3 mb-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-[#5E6C84]">Model</span>
+                      <div className="flex items-center gap-1 rounded-lg border border-[#DFE1E6] bg-white p-1">
+                        {MODEL_OPTIONS.map((option) => {
+                          const isActive = activeModelOption.value === option.value;
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => {
+                                setSelectedModelName(option.value);
+                                setSelectedModelProvider(option.provider);
+                              }}
+                              className={`rounded-md px-2.5 py-1 text-[10px] font-bold transition cursor-pointer ${
+                                isActive
+                                  ? "bg-[#0052CC] text-white"
+                                  : "text-[#5E6C84] hover:bg-[#F4F5F7] hover:text-[#091E42]"
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-semibold text-[#5E6C84]">{activeModelOption.meta}</span>
+                  </div>
+
                   <form onSubmit={handleQueryAiAgent} className="flex gap-2 relative">
                     <input
                       type="text"
@@ -5212,7 +5216,7 @@ export default function App() {
                     </button>
                   </form>
                   <p className="text-[8.5px] text-[#5E6C84] text-center mt-2.5 font-sans font-bold uppercase tracking-wider">
-                    Powered by Gemini - AI can make mistakes, double check before proceeding.
+                    Using {activeModelOption.label} - AI can make mistakes, double check before proceeding.
                   </p>
                 </div>
               )}

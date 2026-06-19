@@ -13,6 +13,13 @@ if (!CONVEX_URL) {
 
 const convex = new ConvexHttpClient(CONVEX_URL || "");
 
+function normalizeSelectedModel(model?: string | null, provider?: string | null) {
+  if (model === "gemini-3.5-flash" || provider === "google") {
+    return { selectedModelProvider: "google", selectedModelName: "gemini-3.5-flash" };
+  }
+  return { selectedModelProvider: "openai", selectedModelName: "gpt-5.4-mini" };
+}
+
 export interface User {
   id: string;
   email: string;
@@ -96,8 +103,7 @@ export async function getProfilesForUser(userId: string): Promise<any[]> {
     return list.map(p => ({
       ...p,
       openaiApiKey: p.openaiApiKey || null,
-      selectedModelProvider: p.selectedModelProvider || "google",
-      selectedModelName: p.selectedModelName || "gemini-2.0-flash"
+      ...normalizeSelectedModel(p.selectedModelName, p.selectedModelProvider)
     }));
   } catch (err) {
     console.error("Convex getProfilesForUser error:", err);
@@ -133,11 +139,15 @@ export async function saveProfileForUser(userId: string, profile: any): Promise<
     profileToSave.openaiApiKey = null;
   }
   if (profileToSave.selectedModelProvider === undefined) {
-    profileToSave.selectedModelProvider = "google";
+    profileToSave.selectedModelProvider = "openai";
   }
   if (profileToSave.selectedModelName === undefined) {
-    profileToSave.selectedModelName = "gemini-2.0-flash";
+    profileToSave.selectedModelName = "gpt-5.4-mini";
   }
+  Object.assign(
+    profileToSave,
+    normalizeSelectedModel(profileToSave.selectedModelName, profileToSave.selectedModelProvider)
+  );
 
   return await convex.mutation(api.profiles.saveForUser, {
     userId,

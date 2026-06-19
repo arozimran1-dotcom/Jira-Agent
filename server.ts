@@ -74,6 +74,13 @@ function normalizeTaskPriority(priority?: string | null): "Highest" | "High" | "
   return "Medium";
 }
 
+function normalizeRequestedModel(model?: string | null, provider?: string | null) {
+  if (model === "gemini-3.5-flash" || provider === "google") {
+    return { provider: "google", model: "gemini-3.5-flash" };
+  }
+  return { provider: "openai", model: "gpt-5.4-mini" };
+}
+
 function normalizeAgentResponse(payload: any, activeProject?: { key?: string | null; name?: string | null } | null) {
   const fallbackProject = (activeProject?.key || "").trim();
   const proposedLogs = Array.isArray(payload?.proposedLogs) ? payload.proposedLogs : [];
@@ -542,8 +549,8 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
     recentWorklogs,
     authConfig,
     userProfile,
-    provider = "google",
-    model = "gemini-2.0-flash",
+    provider = "openai",
+    model = "gpt-5.4-mini",
     openaiApiKey: clientOpenaiApiKey,
     conversationHistory = [],
     activeProject
@@ -552,6 +559,8 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
   if (!prompt) {
     return res.status(400).json({ error: "prompt is required" });
   }
+
+  const selectedModel = normalizeRequestedModel(model, provider);
 
   // Helper to extract plain text from ADF comment structure
   const extractTextFromADF = (comment: any): string => {
@@ -618,7 +627,7 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
     parts: [{ text: m.text }]
   }));
 
-  if (provider === "openai") {
+  if (selectedModel.provider === "openai") {
     const openaiApiKey = clientOpenaiApiKey || process.env.OPENAI_API_KEY;
     if (!openaiApiKey) {
       return res.status(400).json({
@@ -648,7 +657,7 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
             "Authorization": `Bearer ${openaiApiKey}`
           },
           body: JSON.stringify({
-            model: model,
+            model: selectedModel.model,
             messages: messages,
             tools: [
               {
@@ -757,7 +766,7 @@ app.post("/api/gemini/agent", requireAuth, async (req, res) => {
       });
 
       const chat = ai.chats.create({
-        model: model,
+        model: selectedModel.model,
         history: geminiHistory,
         config: {
           systemInstruction,

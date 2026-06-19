@@ -1,6 +1,13 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+function normalizeSelectedModel(model?: string | null, provider?: string | null) {
+  if (model === "gemini-3.5-flash" || provider === "google") {
+    return { selectedModelProvider: "google", selectedModelName: "gemini-3.5-flash" };
+  }
+  return { selectedModelProvider: "openai", selectedModelName: "gpt-5.4-mini" };
+}
+
 export const getForUser = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
@@ -36,6 +43,10 @@ export const saveForUser = mutation({
   },
   handler: async (ctx, args) => {
     const { userId, profile } = args;
+    const normalizedModel = normalizeSelectedModel(
+      (profile as any).selectedModelName,
+      (profile as any).selectedModelProvider
+    );
     const existing = await ctx.db
       .query("profiles")
       .withIndex("by_userId_and_id", (q) => q.eq("userId", userId).eq("id", profile.id))
@@ -51,8 +62,8 @@ export const saveForUser = mutation({
       selectedSite: profile.selectedSite,
       geminiApiKey: profile.geminiApiKey,
       openaiApiKey: (profile as any).openaiApiKey !== undefined ? (profile as any).openaiApiKey : null,
-      selectedModelProvider: (profile as any).selectedModelProvider !== undefined ? (profile as any).selectedModelProvider : "google",
-      selectedModelName: (profile as any).selectedModelName !== undefined ? (profile as any).selectedModelName : "gemini-2.0-flash",
+      selectedModelProvider: normalizedModel.selectedModelProvider,
+      selectedModelName: normalizedModel.selectedModelName,
     };
 
     if (existing) {
